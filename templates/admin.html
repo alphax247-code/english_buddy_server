@@ -240,7 +240,8 @@
         </div>
         <div class="form-group">
           <label>Mobile Number</label>
-          <input type="text" id="edit-aff-mobile" placeholder="+258..." />
+          <input type="tel" id="edit-aff-mobile" placeholder="+258 84 000 0000" required />
+          <small class="text-muted">Required for payouts</small>
         </div>
         <div class="form-group">
           <label>Commission Rate (%)</label>
@@ -279,8 +280,9 @@
           <input type="text" id="new-aff-name" placeholder="John Doe" />
         </div>
         <div class="form-group">
-          <label>Mobile Number (Optional)</label>
-          <input type="text" id="new-aff-mobile" placeholder="+258..." />
+          <label>Mobile Number</label>
+          <input type="tel" id="new-aff-mobile" placeholder="+258 84 000 0000" required />
+          <small class="text-muted">Required for affiliate payouts</small>
         </div>
         <div class="form-group">
           <label>Commission Rate (%)</label>
@@ -344,7 +346,24 @@
 
   <script src="/static/js/app.js"></script>
   <script>
-    if (!authGuard()) {}
+    // Redirect to admin login if not authenticated
+    const token = localStorage.getItem('token');
+    if (!token) {
+      window.location.href = '/admin/login';
+    } else {
+      // Verify admin role
+      API.get('/api/me')
+        .then(res => {
+          if (!res.user || res.user.role !== 'admin') {
+            localStorage.removeItem('token');
+            window.location.href = '/admin/login';
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+          window.location.href = '/admin/login';
+        });
+    }
 
     let allAffiliates = [];
     let allUsers = [];
@@ -510,6 +529,11 @@
 
       if (!code || !name) {
         showAlert('alert-box', 'Code and name are required.');
+        return;
+      }
+
+      if (!mobile) {
+        showAlert('alert-box', 'Mobile number is required for affiliate payouts.');
         return;
       }
 

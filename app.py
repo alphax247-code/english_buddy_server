@@ -219,6 +219,11 @@ def payment_return_page(request: Request):
     return templates.TemplateResponse("payment_return.html", {"request": request})
 
 
+@app.get("/admin/login", response_class=HTMLResponse)
+def admin_login_page(request: Request):
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
@@ -849,9 +854,13 @@ def get_all_affiliates(admin: dict = Depends(get_admin_user)):
 def create_affiliate(payload: CreateAffiliatePayload, admin: dict = Depends(get_admin_user)):
     code = payload.code.strip().upper()
     name = payload.name.strip()
+    mobile = payload.mobile.strip() if payload.mobile else None
 
     if not code or not name:
         raise HTTPException(status_code=400, detail="Code and name are required")
+
+    if not mobile:
+        raise HTTPException(status_code=400, detail="Mobile number is required for affiliate payouts")
 
     existing = db.get_affiliate_by_code(code)
     if existing:

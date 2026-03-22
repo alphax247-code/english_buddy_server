@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="hero">
+    <div class="card">
+      <h1>🔐 Admin Login</h1>
+      <p>Access the English Buddy admin control panel</p>
+
+      <div id="alert-box"></div>
+
+      <form id="admin-login-form" onsubmit="handleAdminLogin(event)">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" placeholder="admin" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter admin password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-btn">Login to Admin Panel</button>
+      </form>
+
+      <p class="text-muted mt-2 text-center">
+        <a href="/">← Back to main login</a> |
+        <a href="/affiliate">Affiliate Login</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    // Redirect if already logged in as admin
+    const token = localStorage.getItem('token');
+    if (token) {
+      API.get('/api/me')
+        .then(res => {
+          if (res.user && res.user.role === 'admin') {
+            window.location.href = '/admin';
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+        });
+    }
+
+    async function handleAdminLogin(event) {
+      event.preventDefault();
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      if (!username || !password) {
+        showAlert('alert-box', 'Please enter both username and password.');
+        return;
+      }
+
+      setLoading('login-btn', true);
+
+      try {
+        const res = await API.post('/api/admin/login', { username, password });
+
+        if (res.ok && res.token) {
+          localStorage.setItem('token', res.token);
+          showAlert('alert-box', 'Login successful! Redirecting...', 'success');
+          setTimeout(() => {
+            window.location.href = '/admin';
+          }, 500);
+        } else {
+          throw new Error('Login failed');
+        }
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Invalid admin credentials. Please try again.');
+      } finally {
+        setLoading('login-btn', false);
+      }
+    }
+  </script>
+</body>
+</html>
