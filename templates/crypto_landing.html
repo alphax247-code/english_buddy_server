@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CryptoTrade - Next Generation Crypto Trading Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      /* Crypto Green Theme */
+      --bg-primary: #05070A;
+      --bg-card: #0B0F14;
+      --gradient-start: #00FFA3;
+      --gradient-end: #00C2FF;
+      --glow: rgba(0, 255, 163, 0.15);
+      --glow-strong: rgba(0, 255, 163, 0.3);
+      --text-primary: #E5E7EB;
+      --text-muted: #9CA3AF;
+      --border: rgba(255, 255, 255, 0.05);
+      --border-strong: rgba(255, 255, 255, 0.1);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* Background Effects */
+    .bg-glow {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      z-index: -1;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .glow-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.4;
+      animation: float 20s ease-in-out infinite;
+    }
+
+    .glow-orb-1 {
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, var(--gradient-start), transparent);
+      top: -200px;
+      right: -200px;
+      animation-delay: 0s;
+    }
+
+    .glow-orb-2 {
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, var(--gradient-end), transparent);
+      bottom: -100px;
+      left: -100px;
+      animation-delay: 5s;
+    }
+
+    .glow-orb-3 {
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, var(--gradient-start), transparent);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      animation-delay: 10s;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(30px, -30px) scale(1.1); }
+      66% { transform: translate(-30px, 30px) scale(0.9); }
+    }
+
+    /* Glass Effect */
+    .glass {
+      background: rgba(11, 15, 20, 0.6);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+    }
+
+    .glass-strong {
+      background: rgba(11, 15, 20, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-strong);
+      border-radius: 20px;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    /* Navbar */
+    nav {
+      position: fixed;
+      top: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      width: calc(100% - 4rem);
+      max-width: 1200px;
+    }
+
+    .nav-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: color 0.3s;
+    }
+
+    .nav-links a:hover {
+      color: var(--text-primary);
+    }
+
+    .nav-actions {
+      display: flex;
+      gap: 1rem;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      border: none;
+      transition: all 0.3s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+    }
+
+    .btn-ghost:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-strong);
+    }
+
+    .btn-gradient {
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      color: #000;
+      font-weight: 700;
+      box-shadow: 0 0 30px var(--glow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-gradient::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+      transition: left 0.5s;
+    }
+
+    .btn-gradient:hover::before {
+      left: 100%;
+    }
+
+    .btn-gradient:hover {
+      box-shadow: 0 0 50px var(--glow-strong);
+      transform: translateY(-2px);
+    }
+
+    /* Hero Section */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding-top: 8rem;
+      padding-bottom: 4rem;
+    }
+
+    .hero-content {
+      text-align: center;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      padding: 0.5rem 1.25rem;
+      border-radius: 50px;
+      background: rgba(0, 255, 163, 0.1);
+      border: 1px solid rgba(0, 255, 163, 0.2);
+      color: var(--gradient-start);
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 2rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 20px var(--glow); }
+      50% { box-shadow: 0 0 40px var(--glow-strong); }
+    }
+
+    .hero h1 {
+      font-size: 4.5rem;
+      font-weight: 900;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(135deg, var(--text-primary), var(--gradient-start));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-gradient-text {
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+      line-height: 1.8;
+      max-width: 700px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    /* Dashboard Preview */
+    .dashboard-preview {
+      margin-top: 4rem;
+      position: relative;
+    }
+
+    .dashboard-card {
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .dashboard-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gradient-start), var(--gradient-end), transparent);
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      padding: 1.5rem;
+      border-radius: 16px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+    }
+
+    .stat-label {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-change {
+      font-size: 0.875rem;
+      color: var(--gradient-start);
+      margin-top: 0.25rem;
+    }
+
+    .chart-placeholder {
+      height: 300px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .chart-line {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 200px;
+      background: linear-gradient(180deg, var(--glow), transparent);
+      clip-path: polygon(
+        0% 100%,
+        10% 80%,
+        20% 85%,
+        30% 60%,
+        40% 65%,
+        50% 40%,
+        60% 45%,
+        70% 30%,
+        80% 35%,
+        90% 20%,
+        100% 25%,
+        100% 100%
+      );
+      animation: chart-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes chart-pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* Features Section */
+    .features {
+      padding: 8rem 0;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .section-badge {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      background: rgba(0, 255, 163, 0.1);
+      border: 1px solid rgba(0, 255, 163, 0.2);
+      color: var(--gradient-start);
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+
+    .section-header h2 {
+      font-size: 3rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+    }
+
+    .section-header p {
+      font-size: 1.125rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+    }
+
+    .feature-card {
+      padding: 2.5rem;
+      border-radius: 20px;
+      transition: all 0.3s;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 20px;
+      padding: 1px;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .feature-card:hover::before {
+      opacity: 1;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 60px var(--glow);
+    }
+
+    .feature-icon {
+      width: 60px;
+      height: 60px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+      font-size: 1.75rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    /* Stats Section */
+    .stats-section {
+      padding: 6rem 0;
+      position: relative;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 3rem;
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 3.5rem;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-description {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+
+    /* Mobile App Section */
+    .mobile-app {
+      padding: 8rem 0;
+    }
+
+    .mobile-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: center;
+    }
+
+    .mobile-content h2 {
+      font-size: 3rem;
+      font-weight: 800;
+      margin-bottom: 1.5rem;
+    }
+
+    .mobile-content p {
+      font-size: 1.125rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      line-height: 1.8;
+    }
+
+    .mobile-features {
+      list-style: none;
+      margin-bottom: 2rem;
+    }
+
+    .mobile-features li {
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .mobile-features li::before {
+      content: '✓';
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      color: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .mobile-phone {
+      position: relative;
+      height: 600px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .phone-mockup {
+      width: 300px;
+      height: 600px;
+      border-radius: 40px;
+      background: var(--bg-card);
+      border: 8px solid #1a1a1a;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+      padding: 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .phone-notch {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120px;
+      height: 25px;
+      background: #000;
+      border-radius: 0 0 20px 20px;
+    }
+
+    .phone-content {
+      height: 100%;
+      background: linear-gradient(180deg, var(--bg-primary), var(--bg-card));
+      border-radius: 32px;
+      padding: 2rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .phone-card {
+      background: rgba(0, 255, 163, 0.1);
+      border: 1px solid rgba(0, 255, 163, 0.2);
+      border-radius: 16px;
+      padding: 1.5rem;
+    }
+
+    /* Security Section */
+    .security {
+      padding: 8rem 0;
+    }
+
+    .security-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2rem;
+      margin-top: 4rem;
+    }
+
+    .security-card {
+      padding: 3rem;
+      border-radius: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .security-card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle, var(--glow), transparent);
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .security-icon {
+      font-size: 3rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .security-card h3 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .security-card p {
+      color: var(--text-muted);
+      line-height: 1.8;
+      font-size: 1.05rem;
+    }
+
+    /* CTA Section */
+    .cta-section {
+      padding: 6rem 0;
+      margin: 4rem 0;
+    }
+
+    .cta-content {
+      text-align: center;
+      padding: 5rem 3rem;
+      border-radius: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-content::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      border-radius: 24px;
+      opacity: 0.1;
+      z-index: -1;
+    }
+
+    .cta-content h2 {
+      font-size: 3rem;
+      font-weight: 800;
+      margin-bottom: 1.5rem;
+    }
+
+    .cta-content p {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 0;
+      margin-top: 4rem;
+    }
+
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+
+    .footer-links a:hover {
+      color: var(--text-primary);
+    }
+
+    /* Responsive */
+    @media (max-width: 968px) {
+      .hero h1 { font-size: 3rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .dashboard-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .mobile-grid { grid-template-columns: 1fr; }
+      .security-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 2.5rem; }
+      .section-header h2 { font-size: 2rem; }
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Background Glows -->
+  <div class="bg-glow">
+    <div class="glow-orb glow-orb-1"></div>
+    <div class="glow-orb glow-orb-2"></div>
+    <div class="glow-orb glow-orb-3"></div>
+  </div>
+
+  <!-- Navbar -->
+  <nav>
+    <div class="nav-container glass">
+      <div class="logo">CryptoTrade</div>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#mobile">Mobile</a></li>
+        <li><a href="#about">About</a></li>
+      </ul>
+      <div class="nav-actions">
+        <button class="btn btn-ghost">Sign In</button>
+        <button class="btn btn-gradient">Get Started</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-content">
+        <div class="hero-badge">🚀 Now Live: Advanced Trading Bots</div>
+        <h1>
+          Trade Crypto Like a<br>
+          <span class="hero-gradient-text">Professional</span>
+        </h1>
+        <p>
+          Experience the future of crypto trading with advanced charts, real-time analytics,
+          and institutional-grade security. Join 500,000+ traders worldwide.
+        </p>
+        <div class="hero-cta">
+          <button class="btn btn-gradient">Start Trading Free</button>
+          <button class="btn btn-ghost">Watch Demo</button>
+        </div>
+
+        <!-- Dashboard Preview -->
+        <div class="dashboard-preview">
+          <div class="dashboard-card glass-strong">
+            <div class="dashboard-grid">
+              <div class="stat-card">
+                <div class="stat-label">Portfolio Value</div>
+                <div class="stat-value">$124,580</div>
+                <div class="stat-change">+12.5% Today</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">24h Volume</div>
+                <div class="stat-value">$2.4M</div>
+                <div class="stat-change">+8.2% </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Active Trades</div>
+                <div class="stat-value">147</div>
+                <div class="stat-change">+23 New</div>
+              </div>
+            </div>
+            <div class="chart-placeholder">
+              <div class="chart-line"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">Features</div>
+        <h2>Everything You Need to Trade</h2>
+        <p>Professional-grade tools designed for both beginners and expert traders</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card glass">
+          <div class="feature-icon">⚡</div>
+          <h3>Lightning Fast</h3>
+          <p>Execute trades in milliseconds with our ultra-low latency infrastructure. Never miss an opportunity.</p>
+        </div>
+
+        <div class="feature-card glass">
+          <div class="feature-icon">📊</div>
+          <h3>Advanced Charts</h3>
+          <p>Professional TradingView charts with 100+ indicators and drawing tools for technical analysis.</p>
+        </div>
+
+        <div class="feature-card glass">
+          <div class="feature-icon">🤖</div>
+          <h3>Trading Bots</h3>
+          <p>Automate your strategies with AI-powered bots. Set it and forget it while bots trade 24/7.</p>
+        </div>
+
+        <div class="feature-card glass">
+          <div class="feature-icon">🔐</div>
+          <h3>Bank-Level Security</h3>
+          <p>Your assets are protected with multi-signature wallets and cold storage solutions.</p>
+        </div>
+
+        <div class="feature-card glass">
+          <div class="feature-icon">📱</div>
+          <h3>Mobile Trading</h3>
+          <p>Trade on the go with our native iOS and Android apps. Full desktop features in your pocket.</p>
+        </div>
+
+        <div class="feature-card glass">
+          <div class="feature-icon">💎</div>
+          <h3>Low Fees</h3>
+          <p>Industry-leading fee structure. Trade more, pay less with our tiered pricing system.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats Section -->
+  <section class="stats-section">
+    <div class="container">
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-number">500K+</div>
+          <div class="stat-description">Active Traders</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-number">$2.4B</div>
+          <div class="stat-description">24h Volume</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-number">180+</div>
+          <div class="stat-description">Cryptocurrencies</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-number">99.9%</div>
+          <div class="stat-description">Uptime</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mobile App Section -->
+  <section class="mobile-app" id="mobile">
+    <div class="container">
+      <div class="mobile-grid">
+        <div class="mobile-content">
+          <div class="section-badge">Mobile App</div>
+          <h2>Trade Anywhere, Anytime</h2>
+          <p>
+            Our mobile app brings the full power of CryptoTrade to your fingertips.
+            Monitor markets, execute trades, and manage your portfolio on the go.
+          </p>
+          <ul class="mobile-features">
+            <li>Real-time price alerts and notifications</li>
+            <li>Biometric authentication for security</li>
+            <li>Advanced charting on mobile</li>
+            <li>One-tap trading interface</li>
+            <li>Portfolio tracking and analytics</li>
+          </ul>
+          <div style="display: flex; gap: 1rem;">
+            <button class="btn btn-gradient">Download for iOS</button>
+            <button class="btn btn-ghost">Download for Android</button>
+          </div>
+        </div>
+
+        <div class="mobile-phone">
+          <div class="phone-mockup">
+            <div class="phone-notch"></div>
+            <div class="phone-content">
+              <div class="phone-card">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">BTC/USD</div>
+                <div style="font-size: 1.5rem; font-weight: 700;">$42,580</div>
+                <div style="font-size: 0.875rem; color: var(--gradient-start);">+5.2%</div>
+              </div>
+              <div class="phone-card">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">ETH/USD</div>
+                <div style="font-size: 1.5rem; font-weight: 700;">$2,340</div>
+                <div style="font-size: 0.875rem; color: var(--gradient-start);">+3.8%</div>
+              </div>
+              <div class="phone-card">
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">Portfolio</div>
+                <div style="font-size: 1.5rem; font-weight: 700;">$124,580</div>
+                <div style="font-size: 0.875rem; color: var(--gradient-start);">+12.5%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Security Section -->
+  <section class="security" id="security">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">Security</div>
+        <h2>Your Assets, Protected</h2>
+        <p>Industry-leading security measures to keep your crypto safe</p>
+      </div>
+
+      <div class="security-grid">
+        <div class="security-card glass-strong">
+          <div class="security-icon">🔒</div>
+          <h3>Cold Storage</h3>
+          <p>
+            95% of user funds are stored in offline, multi-signature cold wallets,
+            protected from online threats and unauthorized access.
+          </p>
+        </div>
+
+        <div class="security-card glass-strong">
+          <div class="security-icon">🛡️</div>
+          <h3>2FA & Biometric</h3>
+          <p>
+            Multi-layered authentication with Google Authenticator, SMS codes,
+            and biometric verification for maximum account security.
+          </p>
+        </div>
+
+        <div class="security-card glass-strong">
+          <div class="security-icon">🔐</div>
+          <h3>Encryption</h3>
+          <p>
+            Bank-grade 256-bit encryption for all data transmission and storage.
+            Your personal information is always protected.
+          </p>
+        </div>
+
+        <div class="security-card glass-strong">
+          <div class="security-icon">✅</div>
+          <h3>Compliance</h3>
+          <p>
+            Fully licensed and regulated. We comply with all financial regulations
+            and undergo regular third-party security audits.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="container">
+      <div class="cta-content glass-strong">
+        <h2>Ready to Start Trading?</h2>
+        <p>
+          Join hundreds of thousands of traders who trust CryptoTrade.
+          Get started in minutes with no hidden fees.
+        </p>
+        <button class="btn btn-gradient" style="font-size: 1.1rem; padding: 1rem 3rem;">
+          Create Free Account
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div class="logo">CryptoTrade</div>
+        <ul class="footer-links">
+          <li><a href="#">Terms</a></li>
+          <li><a href="#">Privacy</a></li>
+          <li><a href="#">Security</a></li>
+          <li><a href="#">Support</a></li>
+          <li><a href="#">Careers</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Smooth scroll for navigation
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    // Parallax effect for glow orbs
+    document.addEventListener('mousemove', (e) => {
+      const orbs = document.querySelectorAll('.glow-orb');
+      const x = e.clientX / window.innerWidth;
+      const y = e.clientY / window.innerHeight;
+
+      orbs.forEach((orb, index) => {
+        const speed = (index + 1) * 20;
+        const xMove = (x - 0.5) * speed;
+        const yMove = (y - 0.5) * speed;
+        orb.style.transform = `translate(${xMove}px, ${yMove}px)`;
+      });
+    });
+
+    // Add scroll animation to cards
+    const observerOptions = {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, observerOptions);
+
+    document.querySelectorAll('.feature-card, .security-card').forEach(card => {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(20px)';
+      card.style.transition = 'opacity 0.6s, transform 0.6s';
+      observer.observe(card);
+    });
+  </script>
+</body>
+</html>
