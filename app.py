@@ -234,11 +234,6 @@ def affiliate_page(request: Request):
     return templates.TemplateResponse("affiliate.html", {"request": request})
 
 
-@app.get("/crypto-demo", response_class=HTMLResponse)
-def crypto_landing_page(request: Request):
-    return templates.TemplateResponse("crypto_landing.html", {"request": request})
-
-
 # =====================================================
 # AUTH
 # =====================================================
