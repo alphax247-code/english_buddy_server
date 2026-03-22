@@ -34,11 +34,10 @@
         return;
       }
       try {
-        const res = await API.get(`/api/payments/${reference}/status`);
-        const status = res.payment.status;
-        if (status === 'success') {
+        const res = await API.post('/api/register/check-payment-status', { reference });
+        if (res.status === 'success') {
           setResult('success', res);
-        } else if (status === 'pending') {
+        } else if (res.status === 'pending') {
           setTimeout(checkPayment, 4000);
         } else {
           setResult('failed');
