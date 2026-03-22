@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Affiliate – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <nav>
+    <a href="/" class="logo">🎓 English Buddy</a>
+    <div>
+      <a href="/dashboard">Dashboard</a>
+      <a href="#" onclick="logout()">Logout</a>
+    </div>
+  </nav>
+
+  <div class="container" style="padding-top:2rem;">
+    <div id="alert-box"></div>
+
+    <div class="card">
+      <h1>Affiliate Programme</h1>
+      <p class="text-muted">Earn commissions by referring new students to English Buddy.</p>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats" id="stats-section" style="display:none;">
+      <div class="stat">
+        <div class="value" id="stat-referrals">–</div>
+        <div class="label">Total Referrals</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-earnings">–</div>
+        <div class="label">Total Earnings</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-rate">–</div>
+        <div class="label">Commission Rate</div>
+      </div>
+    </div>
+
+    <!-- Affiliate code card -->
+    <div class="card" id="code-card" style="display:none;">
+      <h2>Your Affiliate Code</h2>
+      <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <code id="aff-code" style="font-size:1.5rem; font-weight:700; color:var(--primary);">-</code>
+        <button class="btn btn-outline" onclick="copyCode()">Copy Code</button>
+      </div>
+      <p class="text-muted mt-1">Share this code with friends. You earn a commission for every successful registration.</p>
+    </div>
+
+    <!-- Referrals table -->
+    <div class="card" id="referrals-card" style="display:none;">
+      <h2>Referrals</h2>
+      <div id="referrals-table"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Not an affiliate -->
+    <div class="card text-center" id="not-affiliate-card">
+      <div style="font-size:3rem;">🤝</div>
+      <h2>Become an Affiliate</h2>
+      <p class="text-muted">Contact our team to get your affiliate code and start earning commissions.</p>
+      <a href="mailto:support@englishbuddy.com" class="btn btn-primary mt-2">Contact Us</a>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (!authGuard()) {}
+
+    let affiliateCode = null;
+
+    async function loadAffiliate() {
+      try {
+        const meRes = await API.get('/api/me');
+        const me = meRes.user;
+
+        // affiliate_code is stored on the user object in the db
+        // If the user has no affiliate_code, show the "not an affiliate" card
+        if (!me.affiliate_code) return;
+
+        affiliateCode = me.affiliate_code;
+        document.getElementById('not-affiliate-card').style.display = 'none';
+        document.getElementById('stats-section').style.display = 'grid';
+        document.getElementById('code-card').style.display = 'block';
+        document.getElementById('aff-code').textContent = affiliateCode;
+
+        // Only admins can load full referral stats; for regular users show basic info
+        if (me.role === 'admin') {
+          document.getElementById('referrals-card').style.display = 'block';
+          const res = await API.get(`/api/admin/affiliates/${affiliateCode}/referrals`).catch(() => null);
+          if (res) {
+            document.getElementById('stat-referrals').textContent = res.affiliate?.total_referrals ?? '-';
+            document.getElementById('stat-earnings').textContent  = formatAmount(res.affiliate?.total_earnings ?? 0);
+            document.getElementById('stat-rate').textContent      = '-';
+
+            const rows = (res.users || []).map(r => `
+              <tr>
+                <td>${r.mobile || '-'}</td>
+                <td>${formatDate(r.created_at)}</td>
+              </tr>`).join('');
+
+            document.getElementById('referrals-table').innerHTML = rows ? `
+              <table>
+                <thead><tr><th>Mobile</th><th>Date</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>` : '<p class="text-muted">No referrals yet.</p>';
+          }
+        }
+      } catch (e) {
+        if (e.status === 401) return logout();
+        showAlert('alert-box', 'Failed to load affiliate data.', 'warning');
+      }
+    }
+
+    function copyCode() {
+      if (!affiliateCode) return;
+      navigator.clipboard.writeText(affiliateCode).then(() =>
+        showAlert('alert-box', 'Affiliate code copied to clipboard!', 'success')
+      );
+    }
+
+    loadAffiliate();
+  </script>
+</body>
+</html>

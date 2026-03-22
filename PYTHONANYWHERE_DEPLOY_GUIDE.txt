@@ -1,0 +1,171 @@
+===================================================
+  ENGLISH BUDDY SERVER — PYTHONANYWHERE DEPLOY GUIDE
+===================================================
+
+PREREQUISITES
+-------------
+- A PythonAnywhere account (free or paid)
+  Note: Free accounts only allow outbound HTTP to whitelisted domains.
+  Since this app calls the Paysuite API, you need a PAID account
+  (Hacker plan or above) so external HTTP requests are allowed.
+
+
+STEP 1 — UPLOAD YOUR FILES
+---------------------------
+Option A: Upload via the PythonAnywhere Files tab
+  1. Log in to pythonanywhere.com
+  2. Go to the "Files" tab
+  3. Create a directory for your project:
+       /home/Geraldstr7/english_buddy_server/
+  4. Upload ALL of these files/folders from your local project:
+       - app.py
+       - json_db.py
+       - payout_service.py       (if it exists)
+       - requirements.txt
+       - .env
+       - templates/              (entire folder)
+       - static/                 (entire folder)
+  DO NOT upload:
+       - english_buddy/          (virtual environment folder — not needed)
+       - database.db or database.json (will be created fresh on server)
+       - __pycache__/
+
+Option B: Upload via Git (recommended)
+  1. Push your project to GitHub (make sure .env is in .gitignore!)
+  2. Open a PythonAnywhere Bash console
+  3. Run:
+       git clone https://github.com/Geraldstr7/<your-repo>.git english_buddy_server
+  4. Then manually create the .env file (see Step 3)
+
+
+STEP 2 — CREATE A VIRTUAL ENVIRONMENT
+--------------------------------------
+1. Open a Bash console on PythonAnywhere
+2. Run:
+     cd /home/Geraldstr7/english_buddy_server
+     python3.13 -m venv venv
+     source venv/bin/activate
+     pip install -r requirements.txt
+
+
+STEP 3 — SET UP YOUR .env FILE
+--------------------------------
+Create or edit /home/Geraldstr7/english_buddy_server/.env
+and fill in your real values:
+
+  PAYSUITE_API_TOKEN=1608|ZnZfOHcAT9vjJZkELCHOoySx8ZANv5ihXxrIFqHj0f8b63c0
+  PAYSUITE_WEBHOOK_SECRET=whsec_6f6d2f5c8f42bb4154fe1e4529ded42cccef626ae3fc75ba
+  RETURN_URL=https://Geraldstr7.pythonanywhere.com/payment-return
+  CALLBACK_URL=https://Geraldstr7.pythonanywhere.com/api/paysuite/webhook
+  SECRET_KEY=bf6a6b359a0f7e2fd4d814843eec86d51c2144a21081f69c6d30c608ea4368bf
+  ADMIN_PASSWORD=40jWXvD-zhNUN6vbLjPDlQ
+  DATABASE_URL=sqlite:///./database.db
+
+IMPORTANT: Never share your .env file or commit it to a public repo.
+
+
+STEP 4 — CONFIGURE THE WEB APP
+--------------------------------
+1. Go to the "Web" tab on PythonAnywhere
+2. Click "Add a new web app"
+3. Choose your domain (e.g. Geraldstr7.pythonanywhere.com)
+4. Select "Manual configuration"
+5. Select Python 3.13
+6. You will now be on the web app configuration page
+
+Set the following:
+
+  Source code:
+    /home/Geraldstr7/english_buddy_server
+
+  Working directory:
+    /home/Geraldstr7/english_buddy_server
+
+  Virtualenv:
+    /home/Geraldstr7/english_buddy_server/venv
+
+  WSGI configuration file — click on the link and REPLACE the
+  entire content with:
+
+  -------------------------------------------------------
+  import sys
+  import os
+
+  path = '/home/Geraldstr7/english_buddy_server'
+  if path not in sys.path:
+      sys.path.append(path)
+
+  os.chdir(path)
+
+  from dotenv import load_dotenv
+  load_dotenv(os.path.join(path, '.env'))
+
+  from app import app as application
+  -------------------------------------------------------
+
+  Replace Geraldstr7 with your actual PythonAnywhere username.
+
+
+STEP 5 — SET UP STATIC FILES
+------------------------------
+In the Web tab, scroll to "Static files" and add:
+
+  URL         : /static/
+  Directory   : /home/Geraldstr7/english_buddy_server/static/
+
+
+STEP 6 — RELOAD AND TEST
+--------------------------
+1. Click the green "Reload" button at the top of the Web tab
+2. Visit https://Geraldstr7.pythonanywhere.com
+3. You should see the English Buddy login page
+
+
+STEP 7 — ADMIN ACCESS
+-----------------------
+The admin panel is at:
+  https://Geraldstr7.pythonanywhere.com/admin
+
+To log in as admin, use the API endpoint:
+  POST /api/admin/login
+  Body: { "username": "admin", "password": "<your ADMIN_PASSWORD from .env>" }
+
+This returns a JWT token. Use it as a Bearer token for admin API calls.
+
+You can also call this from the admin page's login form
+(if one is implemented in admin.html).
+
+Default credentials (change before deploying!):
+  username: admin
+  password: change-this-admin-password   <-- set this in your .env
+
+
+STEP 8 — WEBHOOK SETUP
+------------------------
+If using Paysuite webhooks:
+1. Set CALLBACK_URL in your .env to:
+     https://Geraldstr7.pythonanywhere.com/api/paysuite/webhook
+2. Register this URL in your Paysuite dashboard
+
+
+TROUBLESHOOTING
+---------------
+- View error logs: Web tab > "Error log" link
+- View access logs: Web tab > "Access log" link
+- If you get "ModuleNotFoundError": make sure your venv is set
+  correctly and all requirements are installed
+- If you get 502/504 errors: check the error log; likely an import
+  error or a missing .env value
+- Free accounts cannot reach external APIs (Paysuite):
+  upgrade to a paid plan
+- The background polling task (_poll_pending_payments) uses asyncio
+  which runs fine under uvicorn but PythonAnywhere uses a WSGI worker.
+  The task will still start via the lifespan handler since
+  PythonAnywhere runs uvicorn under the hood for ASGI apps.
+
+
+RECOMMENDED PYTHONANYWHERE PLAN
+---------------------------------
+  Hacker ($5/month) — allows external HTTP requests (required for Paysuite)
+
+===================================================

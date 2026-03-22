@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="hero">
+    <div class="card">
+      <h1>🎓 English Buddy</h1>
+      <p>Your journey to fluent English starts here.</p>
+
+      <div id="alert-box"></div>
+
+      <!-- LOGIN FORM -->
+      <div id="login-section">
+        <div class="form-group">
+          <label for="mobile">Mobile Number</label>
+          <input type="tel" id="mobile" placeholder="+258 84 000 0000" />
+        </div>
+        <button class="btn btn-primary btn-block" id="login-btn" onclick="handleLogin()">Login</button>
+        <p class="text-muted mt-2">New here? <a href="#" onclick="showRegister()">Register</a></p>
+      </div>
+
+      <!-- REGISTER FLOW -->
+      <div id="register-section" style="display:none;">
+        <h2>Create Account</h2>
+        <div class="form-group">
+          <label for="reg-name">Full Name</label>
+          <input type="text" id="reg-name" placeholder="Your full name" />
+        </div>
+        <div class="form-group">
+          <label for="reg-mobile">Mobile Number</label>
+          <input type="tel" id="reg-mobile" placeholder="+258 84 000 0000" />
+        </div>
+        <div class="form-group">
+          <label for="reg-method">Payment Method</label>
+          <select id="reg-method">
+            <option value="mpesa">M-Pesa</option>
+            <option value="emola">e-Mola</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="reg-affiliate">Affiliate Code (optional)</label>
+          <input type="text" id="reg-affiliate" placeholder="e.g. BUDDY2024" />
+        </div>
+        <button class="btn btn-primary btn-block" id="pay-btn" onclick="handleRegister()">Pay 10 MZN & Register</button>
+        <p class="text-muted mt-2"><a href="#" onclick="showLogin()">← Back to Login</a></p>
+      </div>
+
+      <!-- PAYMENT STATUS CHECK -->
+      <div id="status-section" style="display:none;">
+        <div class="spinner"></div>
+        <p class="text-center" id="status-msg">Processing payment…</p>
+        <p class="text-muted text-center mt-2"><small>Reference: <span id="pay-ref"></span></small></p>
+        <button class="btn btn-outline btn-block mt-2" onclick="checkStatus()">Check Status</button>
+        <button class="btn btn-outline btn-block mt-1" onclick="showLogin()">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    // Redirect if already logged in
+    if (localStorage.getItem('token')) window.location.href = '/dashboard';
+
+    let paymentRef = null;
+
+    function showRegister() {
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('register-section').style.display = 'block';
+    }
+    function showLogin() {
+      document.getElementById('register-section').style.display = 'none';
+      document.getElementById('status-section').style.display = 'none';
+      document.getElementById('login-section').style.display = 'block';
+    }
+
+    async function handleLogin() {
+      const mobile = document.getElementById('mobile').value.trim();
+      if (!mobile) return showAlert('alert-box', 'Please enter your mobile number.');
+      setLoading('login-btn', true);
+      try {
+        const res = await API.post('/api/login', { mobile });
+        localStorage.setItem('token', res.token);
+        window.location.href = '/dashboard';
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Login failed. Make sure your payment is complete.');
+      } finally {
+        setLoading('login-btn', false);
+      }
+    }
+
+    async function handleRegister() {
+      const name      = document.getElementById('reg-name').value.trim();
+      const mobile    = document.getElementById('reg-mobile').value.trim();
+      const method    = document.getElementById('reg-method').value;
+      const affiliate = document.getElementById('reg-affiliate').value.trim();
+      if (!name)   return showAlert('alert-box', 'Please enter your full name.');
+      if (!mobile) return showAlert('alert-box', 'Please enter your mobile number.');
+      setLoading('pay-btn', true);
+      try {
+        const payload = { name, mobile, method };
+        if (affiliate) payload.affiliate_code = affiliate;
+        const res = await API.post('/api/register/start-payment', payload);
+        paymentRef = res.payment.reference;
+        document.getElementById('pay-ref').textContent = paymentRef;
+        document.getElementById('register-section').style.display = 'none';
+        document.getElementById('status-section').style.display = 'block';
+        if (res.payment.checkout_url) window.open(res.payment.checkout_url, '_blank');
+        pollStatus();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Payment initiation failed.');
+      } finally {
+        setLoading('pay-btn', false);
+      }
+    }
+
+    async function checkStatus() {
+      if (!paymentRef) return;
+      try {
+        const res = await API.post('/api/register/check-payment-status', { reference: paymentRef });
+        document.getElementById('status-msg').textContent = 'Status: ' + res.status;
+        if (res.status === 'success' && res.token) {
+          localStorage.setItem('token', res.token);
+          window.location.href = '/dashboard';
+        }
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Could not check status.');
+      }
+    }
+
+    function pollStatus() {
+      let attempts = 0;
+      const timer = setInterval(async () => {
+        attempts++;
+        if (attempts > 20) return clearInterval(timer);
+        try {
+          const res = await API.post('/api/register/check-payment-status', { reference: paymentRef });
+          document.getElementById('status-msg').textContent = 'Status: ' + res.status;
+          if (res.status === 'success' && res.token) {
+            clearInterval(timer);
+            localStorage.setItem('token', res.token);
+            window.location.href = '/dashboard';
+          }
+        } catch (_) {}
+      }, 5000);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <nav>
+    <a href="/" class="logo">🎓 English Buddy</a>
+    <div>
+      <a href="/affiliate">Affiliate</a>
+      <a href="/admin" id="admin-link" style="display:none;">Admin</a>
+      <a href="#" onclick="logout()">Logout</a>
+    </div>
+  </nav>
+
+  <div class="container" style="padding-top:2rem;">
+    <div id="alert-box"></div>
+
+    <!-- User info -->
+    <div class="card flex-between">
+      <div>
+        <h1 id="welcome">Welcome back!</h1>
+        <p class="text-muted" id="user-mobile"></p>
+      </div>
+      <span class="badge" id="status-badge"></span>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat">
+        <div class="value" id="stat-payments">–</div>
+        <div class="label">Payments</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-status">–</div>
+        <div class="label">Account Status</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-registered">–</div>
+        <div class="label">Member Since</div>
+      </div>
+    </div>
+
+    <!-- Payment history -->
+    <div class="card">
+      <div class="flex-between">
+        <h2>Payment History</h2>
+        <button class="btn btn-secondary" onclick="refreshPayments()" id="refresh-btn">Refresh</button>
+      </div>
+      <div id="payments-table">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (!authGuard()) {}
+
+    async function loadDashboard() {
+      try {
+        const [meRes, pmtRes] = await Promise.all([
+          API.get('/api/me'),
+          API.get('/api/my-payments'),
+        ]);
+
+        const me       = meRes.user;
+        const payments = pmtRes.payments;
+
+        document.getElementById('welcome').textContent = `Welcome, ${me.name || me.mobile}!`;
+        document.getElementById('user-mobile').textContent = me.mobile;
+        document.getElementById('stat-status').textContent = me.is_paid ? 'Active' : 'Pending';
+        document.getElementById('stat-payments').textContent = payments.length;
+
+        const badge = document.getElementById('status-badge');
+        badge.textContent = me.is_paid ? 'Active' : 'Pending';
+        badge.className = 'badge ' + (me.is_paid ? 'badge-success' : 'badge-warning');
+
+        if (me.role === 'admin') {
+          document.getElementById('admin-link').style.display = 'inline';
+        }
+
+        const tbody = payments.map(p => `
+          <tr>
+            <td><code>${p.reference}</code></td>
+            <td>${formatAmount(p.amount)}</td>
+            <td>${p.method || '-'}</td>
+            <td><span class="badge badge-${p.status === 'success' ? 'success' : p.status === 'pending' ? 'warning' : 'danger'}">${p.status}</span></td>
+            <td>${formatDate(p.created_at)}</td>
+          </tr>`).join('');
+
+        document.getElementById('payments-table').innerHTML = payments.length ? `
+          <table>
+            <thead><tr><th>Reference</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody>${tbody}</tbody>
+          </table>` : '<p class="text-muted">No payments found.</p>';
+
+      } catch (e) {
+        if (e.status === 401) return logout();
+        showAlert('alert-box', e.detail || 'Failed to load dashboard.');
+      }
+    }
+
+    async function refreshPayments() {
+      const btn = document.getElementById('refresh-btn');
+      btn.disabled = true;
+      btn.textContent = 'Refreshing...';
+      await loadDashboard();
+      btn.disabled = false;
+      btn.textContent = 'Refresh';
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <nav>
+    <a href="/" class="logo">🎓 English Buddy</a>
+    <div>
+      <a href="/dashboard">Dashboard</a>
+      <a href="#" onclick="logout()">Logout</a>
+    </div>
+  </nav>
+
+  <div class="container" style="padding-top:2rem;">
+    <div id="alert-box"></div>
+
+    <div class="card flex-between">
+      <h1>Admin Panel</h1>
+      <span class="badge badge-danger">Admin Only</span>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat"><div class="value" id="stat-users">–</div><div class="label">Total Users</div></div>
+      <div class="stat"><div class="value" id="stat-payments">–</div><div class="label">Payments</div></div>
+      <div class="stat"><div class="value" id="stat-affiliates">–</div><div class="label">Affiliates</div></div>
+      <div class="stat"><div class="value" id="stat-payouts">–</div><div class="label">Payouts</div></div>
+    </div>
+
+    <!-- Tab buttons -->
+    <div class="flex mb-2" style="gap:.5rem;">
+      <button class="btn btn-primary" onclick="showTab('affiliates')">Affiliates</button>
+      <button class="btn btn-outline" onclick="showTab('payments')">Payments</button>
+      <button class="btn btn-outline" onclick="showTab('payouts')">Payouts</button>
+    </div>
+
+    <!-- AFFILIATES TAB -->
+    <div id="tab-affiliates">
+      <div class="card">
+        <div class="flex-between mb-2">
+          <h2>Affiliates</h2>
+          <button class="btn btn-primary" onclick="toggleNewAffiliate()">+ New Affiliate</button>
+        </div>
+
+        <!-- New affiliate form -->
+        <div id="new-affiliate-form" style="display:none; margin-bottom:1.5rem;">
+          <hr />
+          <h2>New Affiliate</h2>
+          <div class="form-group">
+            <label>Code</label>
+            <input type="text" id="aff-code" placeholder="BUDDY2024" />
+          </div>
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="aff-name" placeholder="Full Name" />
+          </div>
+          <div class="form-group">
+            <label>Commission Rate (%)</label>
+            <input type="number" id="aff-rate" value="10" min="0" max="100" />
+          </div>
+          <button class="btn btn-success" id="create-aff-btn" onclick="createAffiliate()">Create</button>
+          <button class="btn btn-outline" onclick="toggleNewAffiliate()">Cancel</button>
+          <hr />
+        </div>
+
+        <div id="affiliates-table"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- PAYMENTS TAB -->
+    <div id="tab-payments" style="display:none;">
+      <div class="card">
+        <h2>Pending Payments</h2>
+        <div id="payments-table"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- PAYOUTS TAB -->
+    <div id="tab-payouts" style="display:none;">
+
+      <!-- Create payout form -->
+      <div class="card">
+        <h2>Pay an Affiliate</h2>
+        <div class="form-group">
+          <label>Affiliate</label>
+          <select id="payout-affiliate">
+            <option value="">— Select affiliate —</option>
+          </select>
+        </div>
+        <div id="affiliate-balance" class="alert alert-info" style="display:none;"></div>
+        <div class="form-group">
+          <label>Amount (MZN)</label>
+          <input type="number" id="payout-amount" placeholder="e.g. 100" min="10" max="1000000" />
+        </div>
+        <div class="form-group">
+          <label>Method</label>
+          <select id="payout-method">
+            <option value="mpesa">M-Pesa</option>
+            <option value="emola">e-Mola</option>
+            <option value="mkesh">Mkesh</option>
+            <option value="bank_transfer">Bank Transfer</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Notes (optional)</label>
+          <input type="text" id="payout-notes" placeholder="e.g. March commission" />
+        </div>
+        <button class="btn btn-success" id="create-payout-btn" onclick="createPayout()">Send Payout</button>
+      </div>
+
+      <!-- Payout history -->
+      <div class="card">
+        <h2>Payout History</h2>
+        <div id="payouts-table"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    if (!authGuard()) {}
+
+    function showTab(name) {
+      ['affiliates','payments','payouts'].forEach(t => {
+        document.getElementById(`tab-${t}`).style.display = t === name ? 'block' : 'none';
+      });
+      if (name === 'payments') loadPayments();
+      if (name === 'payouts')  loadPayouts();
+    }
+
+    function toggleNewAffiliate() {
+      const form = document.getElementById('new-affiliate-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function loadStats() {
+      try {
+        const [usersRes, pmtRes, affRes, payRes] = await Promise.all([
+          API.get('/api/database/users'),
+          API.get('/api/database/payments'),
+          API.get('/api/admin/affiliates'),
+          API.get('/api/admin/payouts'),
+        ]);
+        document.getElementById('stat-users').textContent      = usersRes.data?.length ?? '–';
+        document.getElementById('stat-payments').textContent   = pmtRes.data?.length ?? '–';
+        document.getElementById('stat-affiliates').textContent = affRes.affiliates?.length ?? '–';
+        document.getElementById('stat-payouts').textContent    = payRes.payouts?.length ?? '–';
+      } catch (_) {}
+    }
+
+    async function loadAffiliates() {
+      try {
+        const res = await API.get('/api/admin/affiliates');
+        const affiliates = res.affiliates;
+        const rows = affiliates.map(a => `
+          <tr>
+            <td><strong>${a.code}</strong></td>
+            <td>${a.name || '-'}</td>
+            <td>${a.commission_rate ?? 0}%</td>
+            <td>${a.total_referrals ?? 0}</td>
+            <td>${formatAmount(a.total_earnings ?? 0)}</td>
+            <td><span class="badge badge-${a.is_active ? 'success' : 'danger'}">${a.is_active ? 'Active' : 'Inactive'}</span></td>
+          </tr>`).join('');
+        document.getElementById('affiliates-table').innerHTML = affiliates?.length ? `
+          <table>
+            <thead><tr><th>Code</th><th>Name</th><th>Rate</th><th>Referrals</th><th>Earnings</th><th>Status</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>` : '<p class="text-muted">No affiliates.</p>';
+      } catch (e) {
+        document.getElementById('affiliates-table').innerHTML = '<p class="text-muted">Failed to load.</p>';
+      }
+    }
+
+    async function loadPayments() {
+      try {
+        const res = await API.get('/api/admin/payments/pending');
+        const payments = res.payments;
+        const rows = payments.map(p => `
+          <tr>
+            <td><code>${p.reference}</code></td>
+            <td>${p.mobile || '-'}</td>
+            <td>${formatAmount(p.amount)}</td>
+            <td>${p.payment_method || '-'}</td>
+            <td>${formatDate(p.created_at)}</td>
+            <td>
+              <button class="btn btn-success" onclick="completePayment('${p.reference}')">Mark Complete</button>
+            </td>
+          </tr>`).join('');
+        document.getElementById('payments-table').innerHTML = payments?.length ? `
+          <table>
+            <thead><tr><th>Reference</th><th>Mobile</th><th>Amount</th><th>Method</th><th>Date</th><th>Action</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>` : '<p class="text-muted">No pending payments.</p>';
+      } catch (e) {
+        document.getElementById('payments-table').innerHTML = '<p class="text-muted">Failed to load.</p>';
+      }
+    }
+
+    async function loadPayouts() {
+      try {
+        const res = await API.get('/api/admin/payouts');
+        const payouts = res.payouts;
+        const rows = payouts.map(p => `
+          <tr>
+            <td>${p.affiliate_id}</td>
+            <td>${formatAmount(p.amount)}</td>
+            <td>${p.payout_method || '-'}</td>
+            <td><span class="badge badge-${p.status === 'completed' ? 'success' : p.status === 'pending' ? 'warning' : 'danger'}">${p.status}</span></td>
+            <td>${formatDate(p.created_at)}</td>
+          </tr>`).join('');
+        document.getElementById('payouts-table').innerHTML = payouts?.length ? `
+          <table>
+            <thead><tr><th>Affiliate ID</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>` : '<p class="text-muted">No payouts.</p>';
+      } catch (e) {
+        document.getElementById('payouts-table').innerHTML = '<p class="text-muted">Failed to load.</p>';
+      }
+    }
+
+    async function createAffiliate() {
+      const code = document.getElementById('aff-code').value.trim();
+      const name = document.getElementById('aff-name').value.trim();
+      const rate = parseFloat(document.getElementById('aff-rate').value);
+      if (!code || !name) return showAlert('alert-box', 'Code and name are required.');
+      setLoading('create-aff-btn', true);
+      try {
+        await API.post('/api/admin/affiliates', { code, name, commission_rate: rate, mobile: '' });
+        showAlert('alert-box', 'Affiliate created!', 'success');
+        toggleNewAffiliate();
+        loadAffiliates();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to create affiliate.');
+      } finally {
+        setLoading('create-aff-btn', false);
+      }
+    }
+
+    async function completePayment(reference) {
+      if (!confirm(`Mark payment ${reference} as complete?`)) return;
+      try {
+        await API.post(`/api/admin/payments/${reference}/complete`, {});
+        showAlert('alert-box', 'Payment marked as complete.', 'success');
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to complete payment.');
+      }
+    }
+
+    async function populateAffiliateDropdown() {
+      try {
+        const res = await API.get('/api/admin/affiliates');
+        const select = document.getElementById('payout-affiliate');
+        res.affiliates.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.id;
+          opt.textContent = `${a.name} (${a.code}) — Balance: ${formatAmount(a.total_earnings)}`;
+          opt.dataset.earnings = a.total_earnings;
+          opt.dataset.mobile = a.mobile || '';
+          select.appendChild(opt);
+        });
+        select.addEventListener('change', () => {
+          const opt = select.options[select.selectedIndex];
+          const bal = document.getElementById('affiliate-balance');
+          if (opt.value) {
+            bal.style.display = 'block';
+            bal.textContent = `Available balance: ${formatAmount(opt.dataset.earnings)} | Mobile: ${opt.dataset.mobile || 'not set'}`;
+          } else {
+            bal.style.display = 'none';
+          }
+        });
+      } catch (_) {}
+    }
+
+    async function createPayout() {
+      const affiliateId = document.getElementById('payout-affiliate').value;
+      const amount      = parseFloat(document.getElementById('payout-amount').value);
+      const method      = document.getElementById('payout-method').value;
+      const notes       = document.getElementById('payout-notes').value.trim();
+
+      if (!affiliateId) return showAlert('alert-box', 'Please select an affiliate.');
+      if (!amount || amount < 10) return showAlert('alert-box', 'Minimum payout is 10 MZN.');
+
+      setLoading('create-payout-btn', true);
+      try {
+        const res = await API.post('/api/admin/payouts', {
+          affiliate_id: parseInt(affiliateId),
+          amount,
+          method,
+          notes: notes || null
+        });
+        showAlert('alert-box', res.message || 'Payout created!', 'success');
+        loadPayouts();
+        loadStats();
+        populateAffiliateDropdown();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Payout failed.');
+      } finally {
+        setLoading('create-payout-btn', false);
+      }
+    }
+
+    // Init
+    loadStats();
+    loadAffiliates();
+    populateAffiliateDropdown();
+  </script>
+</body>
+</html>

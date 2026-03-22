@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Return – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="hero">
+    <div class="card text-center">
+      <div id="icon" style="font-size:3rem; margin-bottom:1rem;">⏳</div>
+      <h1 id="title">Checking Payment…</h1>
+      <p class="text-muted" id="subtitle">Please wait while we verify your payment.</p>
+      <div class="spinner" id="spinner"></div>
+      <div id="alert-box" class="mt-2"></div>
+      <div id="actions" style="display:none; margin-top:1rem;">
+        <a href="/dashboard" class="btn btn-primary btn-block mt-1">Go to Dashboard</a>
+        <a href="/" class="btn btn-outline btn-block mt-1">Back to Login</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get('reference') || params.get('ref') || params.get('tx_ref') || '';
+
+    async function checkPayment() {
+      if (!reference) {
+        setResult('error');
+        return;
+      }
+      try {
+        const res = await API.get(`/api/payments/${reference}/status`);
+        const status = res.payment.status;
+        if (status === 'success') {
+          setResult('success', res);
+        } else if (status === 'pending') {
+          setTimeout(checkPayment, 4000);
+        } else {
+          setResult('failed');
+        }
+      } catch (e) {
+        setResult('error');
+      }
+    }
+
+    function setResult(type, data) {
+      const spinner = document.getElementById('spinner');
+      const icon    = document.getElementById('icon');
+      const title   = document.getElementById('title');
+      const sub     = document.getElementById('subtitle');
+      spinner.style.display = 'none';
+      document.getElementById('actions').style.display = 'block';
+
+      if (type === 'success') {
+        icon.textContent = '✅';
+        title.textContent = 'Payment Successful!';
+        sub.textContent = 'Your account is now active. Welcome to English Buddy!';
+        showAlert('alert-box', 'Payment confirmed. You can now log in.', 'success');
+        if (data && data.token) {
+          localStorage.setItem('token', data.token);
+          setTimeout(() => window.location.href = '/dashboard', 2500);
+        }
+      } else if (type === 'failed') {
+        icon.textContent = '❌';
+        title.textContent = 'Payment Failed';
+        sub.textContent = 'Your payment could not be processed. Please try again.';
+        showAlert('alert-box', 'Payment was not completed.', 'danger');
+      } else {
+        icon.textContent = '⚠️';
+        title.textContent = 'Something Went Wrong';
+        sub.textContent = 'We could not verify your payment. Please contact support.';
+        showAlert('alert-box', 'Could not verify payment status.', 'warning');
+      }
+    }
+
+    checkPayment();
+  </script>
+</body>
+</html>

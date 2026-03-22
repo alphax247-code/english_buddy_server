@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Test – English Buddy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .test-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+    pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: .8rem; max-height: 200px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: .4rem; }
+    .dot-ok  { background: #10b981; }
+    .dot-err { background: #ef4444; }
+    .dot-pending { background: #f59e0b; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="logo">🎓 English Buddy</a>
+    <div>
+      <a href="/">Login Page</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/admin">Admin</a>
+    </div>
+  </nav>
+
+  <div class="container" style="padding-top:2rem; padding-bottom:3rem;">
+    <div class="card">
+      <h1>🔧 API Test Console</h1>
+      <p class="text-muted">Use this page to verify the server is running and all endpoints respond correctly.</p>
+    </div>
+
+    <!-- Server health -->
+    <div class="card">
+      <h2>Server Status</h2>
+      <div id="server-status"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Quick tests -->
+    <div class="test-grid" id="test-results"></div>
+
+    <!-- Manual endpoint test -->
+    <div class="card">
+      <h2>Manual Request</h2>
+      <div class="form-group">
+        <label>Method</label>
+        <select id="req-method">
+          <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Path (e.g. /api/test/database-status)</label>
+        <input type="text" id="req-path" value="/api/test/database-status" />
+      </div>
+      <div class="form-group">
+        <label>Body (JSON, for POST/PUT)</label>
+        <textarea id="req-body" rows="4" placeholder='{"key": "value"}'></textarea>
+      </div>
+      <div class="form-group">
+        <label>Bearer Token (optional)</label>
+        <input type="text" id="req-token" placeholder="paste JWT here" />
+      </div>
+      <button class="btn btn-primary" onclick="sendRequest()">Send Request</button>
+      <div class="mt-2">
+        <label>Response</label>
+        <pre id="req-response">–</pre>
+      </div>
+    </div>
+
+    <!-- Login quick test -->
+    <div class="card">
+      <h2>Quick Login Test</h2>
+      <div class="form-group">
+        <label>Mobile Number</label>
+        <input type="tel" id="test-mobile" placeholder="+258840000000" />
+      </div>
+      <button class="btn btn-primary" onclick="quickLogin()">Login & Get Token</button>
+      <div id="token-result" class="mt-2" style="display:none;">
+        <label>Token</label>
+        <pre id="token-display"></pre>
+        <button class="btn btn-outline mt-1" onclick="useToken()">Use this token in requests</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    const TESTS = [
+      { name: 'Database Status', path: '/api/test/database-status', method: 'GET' },
+      { name: 'List Users (debug)', path: '/api/database/users', method: 'GET' },
+      { name: 'List Payments (debug)', path: '/api/database/payments', method: 'GET' },
+      { name: 'Login Page', path: '/', method: 'GET', expectHtml: true },
+    ];
+
+    async function checkServer() {
+      const el = document.getElementById('server-status');
+      try {
+        const res = await fetch('/api/test/database-status');
+        const data = await res.json();
+        el.innerHTML = `
+          <div class="flex">
+            <span class="status-dot dot-ok"></span>
+            <strong>Online</strong>
+          </div>
+          <pre>${JSON.stringify(data, null, 2)}</pre>`;
+      } catch (e) {
+        el.innerHTML = `
+          <div class="flex">
+            <span class="status-dot dot-err"></span>
+            <strong>Server unreachable</strong> – make sure uvicorn is running on port 8001.
+          </div>`;
+      }
+    }
+
+    async function runTests() {
+      const grid = document.getElementById('test-results');
+      grid.innerHTML = '';
+      for (const t of TESTS) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2>${t.name}</h2><div class="spinner"></div>`;
+        grid.appendChild(card);
+
+        try {
+          const res = await fetch(t.path, { method: t.method });
+          const ok  = res.ok;
+          const body = t.expectHtml ? await res.text() : await res.json();
+          card.innerHTML = `
+            <h2>${t.name}</h2>
+            <div class="flex"><span class="status-dot ${ok ? 'dot-ok' : 'dot-err'}"></span>
+            <span>${res.status} ${res.statusText}</span></div>
+            <pre>${t.expectHtml ? '(HTML page returned)' : JSON.stringify(body, null, 2).slice(0, 400)}</pre>`;
+        } catch (e) {
+          card.innerHTML = `
+            <h2>${t.name}</h2>
+            <div class="flex"><span class="status-dot dot-err"></span><span>Failed</span></div>
+            <pre>${e.message}</pre>`;
+        }
+      }
+    }
+
+    async function sendRequest() {
+      const method = document.getElementById('req-method').value;
+      const path   = document.getElementById('req-path').value.trim();
+      const bodyTxt = document.getElementById('req-body').value.trim();
+      const token  = document.getElementById('req-token').value.trim();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const opts = { method, headers };
+      if (['POST','PUT'].includes(method) && bodyTxt) opts.body = bodyTxt;
+
+      try {
+        const res  = await fetch(path, opts);
+        const data = await res.json().catch(() => res.text());
+        document.getElementById('req-response').textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById('req-response').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function quickLogin() {
+      const mobile = document.getElementById('test-mobile').value.trim();
+      if (!mobile) return alert('Enter a mobile number.');
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mobile }),
+        });
+        const data = await res.json();
+        if (data.token) {
+          document.getElementById('token-result').style.display = 'block';
+          document.getElementById('token-display').textContent = data.token;
+        } else {
+          document.getElementById('token-display').textContent = JSON.stringify(data, null, 2);
+          document.getElementById('token-result').style.display = 'block';
+        }
+      } catch (e) {
+        alert('Login failed: ' + e.message);
+      }
+    }
+
+    function useToken() {
+      const token = document.getElementById('token-display').textContent.trim();
+      document.getElementById('req-token').value = token;
+    }
+
+    checkServer();
+    runTests();
+  </script>
+</body>
+</html>
