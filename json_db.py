@@ -212,7 +212,7 @@ class JSONDatabase:
     # =====================================================
 
     def create_affiliate(self, code: str, name: str, mobile: Optional[str] = None,
-                        commission_rate: int = 20) -> Dict[str, Any]:
+                        commission_rate: int = 20, password: Optional[str] = None) -> Dict[str, Any]:
         """Create a new affiliate"""
         with self.lock:
             data = self._read_data()
@@ -232,6 +232,8 @@ class JSONDatabase:
                 "total_referrals": 0,
                 "total_earnings": 0,
                 "is_active": True,
+                "password": password,  # Store hashed password
+                "password_reset_required": False,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
 

@@ -88,6 +88,7 @@ input:focus, select:focus, textarea:focus {
 .btn-primary:hover { background: var(--primary-dark); }
 .btn-success { background: var(--success); color: #fff; }
 .btn-danger { background: var(--danger); color: #fff; }
+.btn-warning { background: var(--warning); color: #fff; }
 .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
 .btn-block { width: 100%; justify-content: center; }
 

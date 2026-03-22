@@ -3,126 +3,300 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Affiliate – English Buddy</title>
+  <title>Affiliate Portal – English Buddy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
-  <nav>
-    <a href="/" class="logo">🎓 English Buddy</a>
-    <div>
-      <a href="/dashboard">Dashboard</a>
-      <a href="#" onclick="logout()">Logout</a>
-    </div>
-  </nav>
-
-  <div class="container" style="padding-top:2rem;">
-    <div id="alert-box"></div>
-
+  <!-- Login Page -->
+  <div id="login-section" class="hero">
     <div class="card">
-      <h1>Affiliate Programme</h1>
-      <p class="text-muted">Earn commissions by referring new students to English Buddy.</p>
+      <h1>🎓 Affiliate Portal</h1>
+      <p>Login to view your earnings and referrals</p>
+      <div id="login-alert"></div>
+      <form id="login-form" onsubmit="affiliateLogin(event)">
+        <div class="form-group">
+          <label>Affiliate Code</label>
+          <input type="text" id="login-code" placeholder="Your affiliate code" required />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="login-password" placeholder="Your password" required />
+        </div>
+        <button type="submit" id="login-btn" class="btn btn-primary btn-block">Login</button>
+      </form>
+      <p class="text-muted mt-2">Don't have an account? <a href="/">Contact admin</a></p>
     </div>
+  </div>
 
-    <!-- Stats -->
-    <div class="stats" id="stats-section" style="display:none;">
-      <div class="stat">
-        <div class="value" id="stat-referrals">–</div>
-        <div class="label">Total Referrals</div>
+  <!-- Dashboard -->
+  <div id="dashboard-section" style="display:none;">
+    <nav>
+      <a href="/" class="logo">🎓 English Buddy</a>
+      <div>
+        <span id="nav-name" style="margin-right:1rem;color:var(--muted);"></span>
+        <a href="#" onclick="logout()">Logout</a>
       </div>
-      <div class="stat">
-        <div class="value" id="stat-earnings">–</div>
-        <div class="label">Total Earnings</div>
-      </div>
-      <div class="stat">
-        <div class="value" id="stat-rate">–</div>
-        <div class="label">Commission Rate</div>
-      </div>
-    </div>
+    </nav>
 
-    <!-- Affiliate code card -->
-    <div class="card" id="code-card" style="display:none;">
-      <h2>Your Affiliate Code</h2>
-      <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-        <code id="aff-code" style="font-size:1.5rem; font-weight:700; color:var(--primary);">-</code>
-        <button class="btn btn-outline" onclick="copyCode()">Copy Code</button>
+    <div class="container" style="padding-top:2rem;max-width:1200px;">
+      <div id="dashboard-alert"></div>
+
+      <div class="card flex-between">
+        <div>
+          <h1>Affiliate Dashboard</h1>
+          <p class="text-muted" style="margin-top:.5rem;">Track your performance and earnings</p>
+        </div>
+        <span class="badge badge-success" id="affiliate-code-badge"></span>
       </div>
-      <p class="text-muted mt-1">Share this code with friends. You earn a commission for every successful registration.</p>
-    </div>
 
-    <!-- Referrals table -->
-    <div class="card" id="referrals-card" style="display:none;">
-      <h2>Referrals</h2>
-      <div id="referrals-table"><div class="spinner"></div></div>
-    </div>
+      <!-- Stats -->
+      <div class="metrics-grid">
+        <div class="metric-card success">
+          <div class="metric-value" id="stat-referrals">–</div>
+          <div class="metric-label">Total Referrals</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="stat-earnings">–</div>
+          <div class="metric-label">Total Earnings (MZN)</div>
+        </div>
+        <div class="metric-card warning">
+          <div class="metric-value" id="stat-commission">–</div>
+          <div class="metric-label">Commission Rate</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="stat-payouts">–</div>
+          <div class="metric-label">Total Payouts</div>
+        </div>
+      </div>
 
-    <!-- Not an affiliate -->
-    <div class="card text-center" id="not-affiliate-card">
-      <div style="font-size:3rem;">🤝</div>
-      <h2>Become an Affiliate</h2>
-      <p class="text-muted">Contact our team to get your affiliate code and start earning commissions.</p>
-      <a href="mailto:support@englishbuddy.com" class="btn btn-primary mt-2">Contact Us</a>
+      <!-- Referral Link -->
+      <div class="card">
+        <h2>Your Referral Link</h2>
+        <p class="text-muted mb-1">Share this link to earn commissions</p>
+        <div style="display:flex;gap:.75rem;">
+          <input type="text" id="referral-link" readonly style="flex:1;" />
+          <button class="btn btn-primary" onclick="copyReferralLink()">📋 Copy</button>
+        </div>
+      </div>
+
+      <!-- Referred Users -->
+      <div class="card">
+        <h2>Referred Users</h2>
+        <div id="referrals-table"><div class="spinner"></div></div>
+      </div>
+
+      <!-- Commission Payments -->
+      <div class="card">
+        <h2>Commission Payments</h2>
+        <div id="payments-table"><div class="spinner"></div></div>
+      </div>
+
+      <!-- Payout History -->
+      <div class="card">
+        <h2>Payout History</h2>
+        <div id="payouts-table"><div class="spinner"></div></div>
+      </div>
     </div>
   </div>
 
   <script src="/static/js/app.js"></script>
   <script>
-    if (!authGuard()) {}
-
+    let affiliateData = null;
     let affiliateCode = null;
 
-    async function loadAffiliate() {
+    // Check if already logged in
+    const token = localStorage.getItem('token');
+    if (token) {
+      checkAuth();
+    }
+
+    async function checkAuth() {
       try {
-        const meRes = await API.get('/api/me');
-        const me = meRes.user;
-
-        // affiliate_code is stored on the user object in the db
-        // If the user has no affiliate_code, show the "not an affiliate" card
-        if (!me.affiliate_code) return;
-
-        affiliateCode = me.affiliate_code;
-        document.getElementById('not-affiliate-card').style.display = 'none';
-        document.getElementById('stats-section').style.display = 'grid';
-        document.getElementById('code-card').style.display = 'block';
-        document.getElementById('aff-code').textContent = affiliateCode;
-
-        // Only admins can load full referral stats; for regular users show basic info
-        if (me.role === 'admin') {
-          document.getElementById('referrals-card').style.display = 'block';
-          const res = await API.get(`/api/admin/affiliates/${affiliateCode}/referrals`).catch(() => null);
-          if (res) {
-            document.getElementById('stat-referrals').textContent = res.affiliate?.total_referrals ?? '-';
-            document.getElementById('stat-earnings').textContent  = formatAmount(res.affiliate?.total_earnings ?? 0);
-            document.getElementById('stat-rate').textContent      = '-';
-
-            const rows = (res.users || []).map(r => `
-              <tr>
-                <td>${r.mobile || '-'}</td>
-                <td>${formatDate(r.created_at)}</td>
-              </tr>`).join('');
-
-            document.getElementById('referrals-table').innerHTML = rows ? `
-              <table>
-                <thead><tr><th>Mobile</th><th>Date</th></tr></thead>
-                <tbody>${rows}</tbody>
-              </table>` : '<p class="text-muted">No referrals yet.</p>';
-          }
+        const res = await API.get('/api/me');
+        if (res.user && res.user.role === 'affiliate') {
+          affiliateCode = res.user.affiliate_code;
+          showDashboard();
+          loadAffiliateData();
+        } else {
+          showLogin();
         }
       } catch (e) {
-        if (e.status === 401) return logout();
-        showAlert('alert-box', 'Failed to load affiliate data.', 'warning');
+        showLogin();
       }
     }
 
-    function copyCode() {
-      if (!affiliateCode) return;
-      navigator.clipboard.writeText(affiliateCode).then(() =>
-        showAlert('alert-box', 'Affiliate code copied to clipboard!', 'success')
-      );
+    function showLogin() {
+      document.getElementById('login-section').style.display = 'flex';
+      document.getElementById('dashboard-section').style.display = 'none';
     }
 
-    loadAffiliate();
+    function showDashboard() {
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('dashboard-section').style.display = 'block';
+    }
+
+    async function affiliateLogin(event) {
+      event.preventDefault();
+
+      const code = document.getElementById('login-code').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      if (!code || !password) {
+        showAlert('login-alert', 'Please enter both code and password.');
+        return;
+      }
+
+      setLoading('login-btn', true);
+
+      try {
+        const res = await fetch('/api/affiliate/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, password })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.detail || 'Login failed');
+        }
+
+        localStorage.setItem('token', data.token);
+        affiliateCode = data.user.affiliate_code;
+
+        document.getElementById('nav-name').textContent = data.user.name;
+        document.getElementById('affiliate-code-badge').textContent = data.user.affiliate_code;
+
+        showDashboard();
+        loadAffiliateData();
+
+      } catch (e) {
+        showAlert('login-alert', e.message || 'Login failed. Please check your credentials.');
+      } finally {
+        setLoading('login-btn', false);
+      }
+    }
+
+    async function loadAffiliateData() {
+      if (!affiliateCode) return;
+
+      try {
+        // Get user info
+        const meRes = await API.get('/api/me');
+        document.getElementById('nav-name').textContent = meRes.user.name;
+        document.getElementById('affiliate-code-badge').textContent = affiliateCode;
+
+        // Get affiliate stats from admin endpoint
+        const res = await API.get(`/api/admin/affiliates/${affiliateCode}/referrals`);
+
+        affiliateData = res;
+
+        // Update stats
+        document.getElementById('stat-referrals').textContent = res.affiliate.total_referrals || 0;
+        document.getElementById('stat-earnings').textContent = formatAmount(res.affiliate.total_earnings || 0);
+        document.getElementById('stat-commission').textContent = `${res.affiliate.commission_rate}%`;
+        document.getElementById('stat-payouts').textContent = res.payouts?.length || 0;
+
+        // Set referral link
+        const baseUrl = window.location.origin;
+        const referralLink = `${baseUrl}/?ref=${affiliateCode}`;
+        document.getElementById('referral-link').value = referralLink;
+
+        // Load tables
+        loadReferrals(res.users || []);
+        loadPayments(res.payments || []);
+        loadPayouts(res.payouts || []);
+
+      } catch (e) {
+        console.error('Failed to load data:', e);
+        showAlert('dashboard-alert', 'Failed to load your data. Please try again.');
+      }
+    }
+
+    function loadReferrals(users) {
+      if (!users.length) {
+        document.getElementById('referrals-table').innerHTML = '<div class="empty-state"><div class="empty-state-icon">👤</div><div class="empty-state-title">No referrals yet</div><div class="empty-state-text">Start sharing your referral link!</div></div>';
+        return;
+      }
+
+      const rows = users.map(u => `
+        <tr>
+          <td><strong>${u.name}</strong></td>
+          <td>${u.mobile}</td>
+          <td>${formatDate(u.created_at)}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('referrals-table').innerHTML = `
+        <table>
+          <thead><tr><th>Name</th><th>Mobile</th><th>Joined</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function loadPayments(payments) {
+      if (!payments.length) {
+        document.getElementById('payments-table').innerHTML = '<div class="empty-state"><div class="empty-state-icon">💳</div><div class="empty-state-title">No commission payments yet</div></div>';
+        return;
+      }
+
+      const rows = payments.map(p => `
+        <tr>
+          <td><code>${p.reference}</code></td>
+          <td>${formatAmount(p.amount)}</td>
+          <td><strong>${formatAmount(p.commission_amount)}</strong></td>
+          <td><span class="badge badge-${p.commission_paid ? 'success' : 'warning'}">${p.commission_paid ? 'Paid' : 'Pending'}</span></td>
+          <td>${formatDate(p.created_at)}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('payments-table').innerHTML = `
+        <table>
+          <thead><tr><th>Reference</th><th>Amount</th><th>Commission</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function loadPayouts(payouts) {
+      if (!payouts.length) {
+        document.getElementById('payouts-table').innerHTML = '<div class="empty-state"><div class="empty-state-icon">💰</div><div class="empty-state-title">No payouts yet</div><div class="empty-state-text">Payouts will appear here when processed</div></div>';
+        return;
+      }
+
+      const rows = payouts.map(p => `
+        <tr>
+          <td><strong>${formatAmount(p.amount)}</strong></td>
+          <td>${p.method || '-'}</td>
+          <td>${formatDate(p.created_at)}</td>
+          <td>${p.paid_by || '-'}</td>
+          <td>${p.notes || '-'}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('payouts-table').innerHTML = `
+        <table>
+          <thead><tr><th>Amount</th><th>Method</th><th>Date</th><th>Paid By</th><th>Notes</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function copyReferralLink() {
+      const input = document.getElementById('referral-link');
+      input.select();
+      document.execCommand('copy');
+      showAlert('dashboard-alert', 'Referral link copied to clipboard!', 'success');
+      setTimeout(() => document.getElementById('dashboard-alert').innerHTML = '', 2000);
+    }
+
+    function logout() {
+      localStorage.removeItem('token');
+      window.location.href = '/affiliate';
+    }
   </script>
 </body>
 </html>

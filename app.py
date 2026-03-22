@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
+import bcrypt
 from dotenv import load_dotenv
 from jose import jwt, JWTError
 from contextlib import asynccontextmanager
@@ -93,6 +94,13 @@ class AdminLoginPayload(BaseModel):
     username: str
     password: str
 
+class AffiliateLoginPayload(BaseModel):
+    code: str
+    password: str
+
+class SetAffiliatePasswordPayload(BaseModel):
+    password: str
+
 
 # =====================================================
 # HELPERS
@@ -108,6 +116,19 @@ def process_mobile_number(mobile: str) -> Optional[str]:
         return "+" + digits
 
     return None
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hashed password"""
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
 
 def create_token(user: dict) -> str:
@@ -203,6 +224,11 @@ def admin_page(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
 
+@app.get("/affiliate", response_class=HTMLResponse)
+def affiliate_page(request: Request):
+    return templates.TemplateResponse("affiliate.html", {"request": request})
+
+
 # =====================================================
 # AUTH
 # =====================================================
@@ -260,6 +286,60 @@ def admin_login(payload: AdminLoginPayload):
 
     token = create_token(admin_user)
     return {"ok": True, "token": token, "user": {"id": admin_user["id"], "name": admin_user["name"], "role": "admin"}}
+
+
+@app.post("/api/affiliate/login")
+def affiliate_login(payload: AffiliateLoginPayload):
+    code = payload.code.strip().upper()
+    password = payload.password
+
+    affiliate = db.get_affiliate_by_code(code)
+    if not affiliate:
+        raise HTTPException(status_code=401, detail="Invalid affiliate code or password")
+
+    if not affiliate.get("password"):
+        raise HTTPException(status_code=401, detail="Password not set. Please contact admin.")
+
+    if not verify_password(password, affiliate["password"]):
+        raise HTTPException(status_code=401, detail="Invalid affiliate code or password")
+
+    if not affiliate.get("is_active"):
+        raise HTTPException(status_code=403, detail="Your affiliate account is inactive")
+
+    # Create user record for affiliate if doesn't exist
+    user = db.get_user_by_mobile(f"affiliate_{code}")
+    if not user:
+        user = db.create_user(
+            name=affiliate["name"],
+            mobile=f"affiliate_{code}",
+            is_paid=True,
+            role="affiliate"
+        )
+    elif user["role"] != "affiliate":
+        db.update_user(user["id"], role="affiliate", name=affiliate["name"])
+        user = db.get_user_by_id(user["id"])
+
+    # Store affiliate_id in token for easy access
+    payload_data = {
+        "user_id": user["id"],
+        "affiliate_id": affiliate["id"],
+        "affiliate_code": code,
+        "role": "affiliate",
+        "exp": datetime.now(timezone.utc) + timedelta(days=30)
+    }
+    token = jwt.encode(payload_data, SECRET_KEY, algorithm=ALGORITHM)
+
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "name": affiliate["name"],
+            "role": "affiliate",
+            "affiliate_code": code
+        },
+        "password_reset_required": affiliate.get("password_reset_required", False)
+    }
 
 
 @app.get("/api/my-payments")
@@ -773,24 +853,28 @@ def create_affiliate(payload: CreateAffiliatePayload, admin: dict = Depends(get_
         raise HTTPException(status_code=400, detail="Affiliate code already exists")
 
     try:
+        # Create affiliate without password initially
+        # Admin can set password later via set-password endpoint
         affiliate = db.create_affiliate(
             code=code,
             name=name,
             mobile=payload.mobile,
-            commission_rate=payload.commission_rate
+            commission_rate=payload.commission_rate,
+            password=None
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "ok": True,
-        "message": "Affiliate created successfully",
+        "message": "Affiliate created successfully. Please set a password for them.",
         "affiliate": {
             "id": affiliate["id"],
             "code": affiliate["code"],
             "name": affiliate["name"],
             "mobile": affiliate["mobile"],
-            "commission_rate": affiliate["commission_rate"]
+            "commission_rate": affiliate["commission_rate"],
+            "has_password": False
         }
     }
 
@@ -823,6 +907,26 @@ def update_affiliate(affiliate_id: int, payload: UpdateAffiliatePayload, admin: 
             "commission_rate": affiliate["commission_rate"],
             "is_active": affiliate["is_active"]
         }
+    }
+
+
+@app.post("/api/admin/affiliates/{affiliate_id}/set-password")
+def set_affiliate_password(affiliate_id: int, payload: SetAffiliatePasswordPayload, admin: dict = Depends(get_admin_user)):
+    """Set or reset affiliate password (admin only)"""
+    affiliate = db.get_affiliate_by_id(affiliate_id)
+    if not affiliate:
+        raise HTTPException(status_code=404, detail="Affiliate not found")
+
+    if not payload.password or len(payload.password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+
+    hashed_password = hash_password(payload.password)
+    db.update_affiliate(affiliate_id, password=hashed_password, password_reset_required=False)
+
+    return {
+        "ok": True,
+        "message": f"Password set successfully for {affiliate['name']}",
+        "affiliate_code": affiliate["code"]
     }
 
 
