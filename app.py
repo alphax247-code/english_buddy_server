@@ -47,6 +47,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.cache = None  # Disable LRU cache (broken on Python 3.14)
 
 
 # =====================================================
