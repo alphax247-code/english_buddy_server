@@ -56,6 +56,7 @@ templates.env.cache = None  # Disable LRU cache (broken on Python 3.14)
 
 class LoginPayload(BaseModel):
     mobile: str
+    password: Optional[str] = None
 
 class StartPaymentPayload(BaseModel):
     mobile: str
@@ -245,23 +246,42 @@ def login(payload: LoginPayload):
     if not mobile:
         raise HTTPException(status_code=400, detail="Invalid mobile number")
 
+    # ── ADMIN: password provided and matches ──────────────────────────────
+    if payload.password and payload.password == ADMIN_PASSWORD:
+        admin_user = db.get_user_by_mobile("admin")
+        if not admin_user:
+            admin_user = db.create_user(name="Admin", mobile="admin", is_paid=True, role="admin")
+        elif admin_user.get("role") != "admin":
+            db.update_user(admin_user["id"], role="admin")
+            admin_user = db.get_user_by_id(admin_user["id"])
+        token = create_token(admin_user)
+        return {"ok": True, "token": token, "role": "admin", "redirect": "/admin",
+                "user": {"id": admin_user["id"], "name": admin_user["name"], "role": "admin"}}
+
+    # ── AFFILIATE: number matches an active affiliate's mobile ────────────
+    for affiliate in db.get_all_affiliates():
+        aff_mobile = process_mobile_number(affiliate.get("mobile", ""))
+        if aff_mobile and aff_mobile == mobile and affiliate.get("is_active"):
+            aff_user_mobile = f"affiliate_{affiliate['code']}"
+            aff_user = db.get_user_by_mobile(aff_user_mobile)
+            if not aff_user:
+                aff_user = db.create_user(name=affiliate["name"], mobile=aff_user_mobile,
+                                          is_paid=True, role="affiliate")
+            token = create_token(aff_user)
+            return {"ok": True, "token": token, "role": "affiliate", "redirect": "/affiliate",
+                    "user": {"id": aff_user["id"], "name": affiliate["name"], "role": "affiliate"}}
+
+    # ── REGULAR USER ──────────────────────────────────────────────────────
     user = db.get_user_by_mobile(mobile)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
+        raise HTTPException(status_code=404, detail="Number not registered. Please register first.")
     if not user["is_paid"]:
-        raise HTTPException(status_code=403, detail="Payment not completed")
+        raise HTTPException(status_code=403, detail="Payment not completed.")
 
     token = create_token(user)
-    return {
-        "ok": True,
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "name": user["name"],
-            "mobile": user["mobile"]
-        }
-    }
+    return {"ok": True, "token": token, "role": user.get("role", "student"),
+            "redirect": "/dashboard",
+            "user": {"id": user["id"], "name": user["name"], "mobile": user["mobile"]}}
 
 
 @app.get("/api/me")

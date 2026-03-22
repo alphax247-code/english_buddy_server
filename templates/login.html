@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>English Buddy Payment API</title>
+  <title>English Buddy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
@@ -11,39 +11,28 @@
 <body>
   <div class="hero">
     <div class="card">
-      <h1>🎓 English Buddy Payment API</h1>
-      <p>Secure payment processing and affiliate management system</p>
-
-      <div class="info-grid" style="margin-top: 2rem; margin-bottom: 2rem;">
-        <div class="info-item">
-          <div class="label">Admin Access</div>
-          <div class="value"><a href="/admin/login" class="btn btn-primary btn-block" style="margin-top: 0.5rem;">Admin Login</a></div>
-        </div>
-        <div class="info-item">
-          <div class="label">Affiliate Access</div>
-          <div class="value"><a href="/affiliate" class="btn btn-success btn-block" style="margin-top: 0.5rem;">Affiliate Login</a></div>
-        </div>
-      </div>
-
-      <hr />
+      <h1>🎓 English Buddy</h1>
+      <p>Enter your details to continue</p>
 
       <div id="alert-box"></div>
 
-      <!-- USER LOGIN FORM (for registered users only) -->
-      <div id="login-section">
-        <h3>Registered User Login</h3>
-        <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 1rem;">For users who have completed registration</p>
-        <div class="form-group">
-          <label for="mobile">Mobile Number</label>
-          <input type="tel" id="mobile" placeholder="+258 84 000 0000" />
-        </div>
-        <button class="btn btn-outline btn-block" id="login-btn" onclick="handleLogin()">Login</button>
-        <p class="text-muted mt-2">New user? <a href="#" onclick="showRegister()">Register & Pay</a></p>
+      <div class="form-group">
+        <label for="mobile">Mobile Number</label>
+        <input type="tel" id="mobile" placeholder="+258 84 000 0000" autofocus />
       </div>
+      <div class="form-group">
+        <label for="password">Password <span style="font-weight:400;color:#94a3b8;">(admin only)</span></label>
+        <input type="password" id="password" placeholder="Leave blank if not admin" />
+      </div>
+      <button class="btn btn-primary btn-block" id="login-btn" onclick="handleLogin()">Continue</button>
 
-      <!-- REGISTER FLOW -->
-      <div id="register-section" style="display:none;">
-        <h2>Create Account</h2>
+      <p class="text-muted mt-2" style="font-size:.85rem;text-align:center;">
+        New user? <a href="#" onclick="showRegister()">Register &amp; Pay</a>
+      </p>
+
+      <!-- Register flow (hidden) -->
+      <div id="register-section" style="display:none;margin-top:1.5rem;border-top:1px solid #e2e8f0;padding-top:1.5rem;">
+        <h3>Create Account</h3>
         <div class="form-group">
           <label for="reg-name">Full Name</label>
           <input type="text" id="reg-name" placeholder="Your full name" />
@@ -63,48 +52,53 @@
           <label for="reg-affiliate">Affiliate Code (optional)</label>
           <input type="text" id="reg-affiliate" placeholder="e.g. BUDDY2024" />
         </div>
-        <button class="btn btn-primary btn-block" id="pay-btn" onclick="handleRegister()">Pay 10 MZN & Register</button>
-        <p class="text-muted mt-2"><a href="#" onclick="showLogin()">← Back to Login</a></p>
+        <button class="btn btn-primary btn-block" id="pay-btn" onclick="handleRegister()">Pay 10 MZN &amp; Register</button>
+        <p class="text-muted mt-2" style="font-size:.85rem;text-align:center;">
+          <a href="#" onclick="hideRegister()">← Back to login</a>
+        </p>
       </div>
 
-      <!-- PAYMENT STATUS CHECK -->
-      <div id="status-section" style="display:none;">
+      <!-- Payment status (hidden) -->
+      <div id="status-section" style="display:none;margin-top:1.5rem;text-align:center;">
         <div class="spinner"></div>
-        <p class="text-center" id="status-msg">Processing payment…</p>
-        <p class="text-muted text-center mt-2"><small>Reference: <span id="pay-ref"></span></small></p>
+        <p id="status-msg">Processing payment…</p>
+        <p class="text-muted" style="font-size:.8rem;">Reference: <code id="pay-ref"></code></p>
         <button class="btn btn-outline btn-block mt-2" onclick="checkStatus()">Check Status</button>
-        <button class="btn btn-outline btn-block mt-1" onclick="showLogin()">Back</button>
+        <button class="btn btn-outline btn-block mt-1" onclick="hideRegister()">Back</button>
       </div>
     </div>
   </div>
 
   <script src="/static/js/app.js"></script>
   <script>
-    // Redirect if already logged in
     if (localStorage.getItem('token')) window.location.href = '/dashboard';
 
     let paymentRef = null;
 
+    document.getElementById('password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleLogin();
+    });
+
     function showRegister() {
-      document.getElementById('login-section').style.display = 'none';
       document.getElementById('register-section').style.display = 'block';
+      document.getElementById('status-section').style.display = 'none';
     }
-    function showLogin() {
+    function hideRegister() {
       document.getElementById('register-section').style.display = 'none';
       document.getElementById('status-section').style.display = 'none';
-      document.getElementById('login-section').style.display = 'block';
     }
 
     async function handleLogin() {
-      const mobile = document.getElementById('mobile').value.trim();
+      const mobile   = document.getElementById('mobile').value.trim();
+      const password = document.getElementById('password').value.trim();
       if (!mobile) return showAlert('alert-box', 'Please enter your mobile number.');
       setLoading('login-btn', true);
       try {
-        const res = await API.post('/api/login', { mobile });
+        const res = await API.post('/api/login', { mobile, password: password || null });
         localStorage.setItem('token', res.token);
-        window.location.href = '/dashboard';
+        window.location.href = res.redirect || '/dashboard';
       } catch (e) {
-        showAlert('alert-box', e.detail || 'Login failed. Make sure your payment is complete.');
+        showAlert('alert-box', e.detail || 'Login failed. Please check your details.');
       } finally {
         setLoading('login-btn', false);
       }
