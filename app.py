@@ -429,7 +429,7 @@ def start_registration_payment(payload: StartPaymentPayload):
         "method": method,
         "reference": reference,
         "description": f"English Buddy registration for {name}",
-        "return_url": RETURN_URL
+        "return_url": f"{RETURN_URL}?reference={reference}"
     }
 
     if CALLBACK_URL:
@@ -1253,6 +1253,9 @@ def get_payment_status_local(reference: str):
         raise HTTPException(status_code=404, detail="Payment not found")
 
     user = db.get_user_by_mobile(payment["mobile"])
+    token = None
+    if payment["status"] == "success" and user and user.get("is_paid"):
+        token = create_token(user)
     return {
         "ok": True,
         "payment": {
@@ -1266,7 +1269,8 @@ def get_payment_status_local(reference: str):
             "created_at": payment["created_at"]
         },
         "user_exists": user is not None,
-        "user_paid": user["is_paid"] if user else False
+        "user_paid": user["is_paid"] if user else False,
+        "token": token
     }
 
 

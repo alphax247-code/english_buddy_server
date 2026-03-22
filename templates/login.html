@@ -138,9 +138,8 @@
     <div id="status-section" style="display:none;">
       <hr class="divider" />
       <div class="spinner"></div>
-      <p id="status-msg" style="color:#444;font-size:.9rem;">Processing payment…</p>
+      <p id="status-msg" style="color:#444;font-size:.9rem;">Redirecting to payment…</p>
       <p style="font-size:.8rem;color:#888;margin-top:.5rem;">Reference: <code id="pay-ref"></code></p>
-      <button class="main-btn" style="margin-top:1rem;" onclick="checkStatus()">Check Status</button>
       <a class="back-link" onclick="hideRegister()">← Back to login</a>
     </div>
   </div>
@@ -204,8 +203,11 @@
         document.getElementById('pay-ref').textContent = paymentRef;
         document.getElementById('register-section').style.display = 'none';
         document.getElementById('status-section').style.display = 'block';
-        if (res.payment.checkout_url) window.open(res.payment.checkout_url, '_blank');
-        pollStatus();
+        if (res.payment.checkout_url) {
+          window.location.href = res.payment.checkout_url;
+        } else {
+          pollStatus();
+        }
       } catch (e) {
         showAlert('alert-box', e.detail || 'Payment initiation failed.');
       } finally {
