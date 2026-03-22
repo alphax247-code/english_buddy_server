@@ -207,32 +207,32 @@ def update_affiliate_stats(payment: dict):
 
 @app.get("/", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html")
 
 
 @app.get("/payment-return", response_class=HTMLResponse)
 def payment_return_page(request: Request):
-    return templates.TemplateResponse("payment_return.html", {"request": request})
+    return templates.TemplateResponse(request, "payment_return.html")
 
 
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
-    return templates.TemplateResponse("admin_login.html", {"request": request})
+    return templates.TemplateResponse(request, "admin_login.html")
 
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request})
+    return templates.TemplateResponse(request, "admin.html")
 
 
 @app.get("/affiliate", response_class=HTMLResponse)
 def affiliate_page(request: Request):
-    return templates.TemplateResponse("affiliate.html", {"request": request})
+    return templates.TemplateResponse(request, "affiliate.html")
 
 
 # =====================================================
