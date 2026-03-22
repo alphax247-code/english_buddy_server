@@ -10,7 +10,14 @@
       "Bash(git remote set-url:*)",
       "Bash(ssh-keyscan:*)",
       "Bash(~/.ssh/known_hosts)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(python app.py:*)",
+      "Bash(pip install:*)",
+      "Bash(timeout:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(git fetch:*)"
     ],
     "deny": [],
     "ask": []

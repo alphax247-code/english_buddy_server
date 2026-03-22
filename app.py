@@ -1380,5 +1380,6 @@ async def _poll_pending_payments():
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting FastAPI server on http://127.0.0.1:8024")
-    uvicorn.run("app:app", host="0.0.0.0", port=8024, reload=False)
+    port = int(os.getenv("PORT", 8024))
+    print(f"Starting FastAPI server on http://0.0.0.0:{port}")
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)

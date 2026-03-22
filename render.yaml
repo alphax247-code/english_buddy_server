@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: english-buddy-server
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SECRET_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PAYSUITE_API_TOKEN
+        sync: false
+      - key: PAYSUITE_WEBHOOK_SECRET
+        sync: false
+      - key: RETURN_URL
+        sync: false
+      - key: CALLBACK_URL
+        sync: false
