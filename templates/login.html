@@ -6,66 +6,142 @@
   <title>English Buddy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: #fff;
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      text-align: center;
+    }
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: .5rem;
+      color: #1a1a1a;
+    }
+    .subtitle {
+      color: #666;
+      font-size: .9rem;
+      margin-bottom: 1.75rem;
+    }
+    .input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1.5px solid #ddd;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-family: inherit;
+      margin-bottom: 1rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .input:focus { border-color: #5b4bff; }
+    .main-btn {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(90deg, #5b4bff, #4caf50);
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity .2s;
+    }
+    .main-btn:hover { opacity: .9; }
+    .main-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .register-text {
+      margin-top: 1.25rem;
+      font-size: .875rem;
+      color: #666;
+    }
+    .register-text a { color: #5b4bff; text-decoration: none; font-weight: 500; }
+    .alert {
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: .875rem;
+      text-align: left;
+    }
+    .alert-danger  { background: #fee2e2; color: #991b1b; }
+    .alert-success { background: #d1fae5; color: #065f46; }
+
+    /* Register section */
+    .divider { border: none; border-top: 1px solid #eee; margin: 1.5rem 0; }
+    .register-section { text-align: left; }
+    .register-section h3 { font-size: 1.1rem; margin-bottom: 1rem; color: #1a1a1a; }
+    label { display: block; font-size: .8rem; font-weight: 600; color: #555; margin-bottom: .35rem; }
+    select { width: 100%; padding: 14px 16px; border: 1.5px solid #ddd; border-radius: 10px; font-size: 1rem; font-family: inherit; margin-bottom: 1rem; outline: none; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: .875rem; color: #5b4bff; cursor: pointer; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #eee;
+      border-top-color: #5b4bff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      margin: 1rem auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    code { background: #f3f4f6; padding: .2rem .4rem; border-radius: 4px; font-size: .85rem; }
+  </style>
 </head>
 <body>
-  <div class="hero">
-    <div class="card">
-      <h1>🎓 English Buddy</h1>
-      <p>Enter your details to continue</p>
+  <div class="container">
+    <h1>Payment API</h1>
+    <p class="subtitle">Secure payment processing and affiliate management system</p>
 
-      <div id="alert-box"></div>
+    <div id="alert-box"></div>
 
-      <div class="form-group">
-        <label for="mobile">Mobile Number</label>
-        <input type="tel" id="mobile" placeholder="+258 84 000 0000" autofocus />
-      </div>
-      <div class="form-group">
-        <label for="password">Password <span style="font-weight:400;color:#94a3b8;">(admin only)</span></label>
-        <input type="password" id="password" placeholder="Leave blank if not admin" />
-      </div>
-      <button class="btn btn-primary btn-block" id="login-btn" onclick="handleLogin()">Continue</button>
+    <!-- Main login -->
+    <div id="login-section">
+      <input type="tel" id="mobile" class="input" placeholder="Mobile Number" autofocus />
+      <input type="password" id="password" class="input" placeholder="Password (admin only)" />
+      <button class="main-btn" id="login-btn" onclick="handleLogin()">Login</button>
+      <p class="register-text">New user? <a href="#" onclick="showRegister()">Register &amp; Pay</a></p>
+    </div>
 
-      <p class="text-muted mt-2" style="font-size:.85rem;text-align:center;">
-        New user? <a href="#" onclick="showRegister()">Register &amp; Pay</a>
-      </p>
-
-      <!-- Register flow (hidden) -->
-      <div id="register-section" style="display:none;margin-top:1.5rem;border-top:1px solid #e2e8f0;padding-top:1.5rem;">
+    <!-- Register flow -->
+    <div id="register-section" style="display:none;">
+      <hr class="divider" />
+      <div class="register-section">
         <h3>Create Account</h3>
-        <div class="form-group">
-          <label for="reg-name">Full Name</label>
-          <input type="text" id="reg-name" placeholder="Your full name" />
-        </div>
-        <div class="form-group">
-          <label for="reg-mobile">Mobile Number</label>
-          <input type="tel" id="reg-mobile" placeholder="+258 84 000 0000" />
-        </div>
-        <div class="form-group">
-          <label for="reg-method">Payment Method</label>
-          <select id="reg-method">
-            <option value="mpesa">M-Pesa</option>
-            <option value="emola">e-Mola</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="reg-affiliate">Affiliate Code (optional)</label>
-          <input type="text" id="reg-affiliate" placeholder="e.g. BUDDY2024" />
-        </div>
-        <button class="btn btn-primary btn-block" id="pay-btn" onclick="handleRegister()">Pay 10 MZN &amp; Register</button>
-        <p class="text-muted mt-2" style="font-size:.85rem;text-align:center;">
-          <a href="#" onclick="hideRegister()">← Back to login</a>
-        </p>
+        <label>Full Name</label>
+        <input type="text" id="reg-name" class="input" placeholder="Your full name" />
+        <label>Mobile Number</label>
+        <input type="tel" id="reg-mobile" class="input" placeholder="+258 84 000 0000" />
+        <label>Payment Method</label>
+        <select id="reg-method">
+          <option value="mpesa">M-Pesa</option>
+          <option value="emola">e-Mola</option>
+        </select>
+        <label>Affiliate Code (optional)</label>
+        <input type="text" id="reg-affiliate" class="input" placeholder="e.g. BUDDY2024" />
+        <button class="main-btn" id="pay-btn" onclick="handleRegister()">Pay 10 MZN &amp; Register</button>
+        <a class="back-link" onclick="hideRegister()">← Back to login</a>
       </div>
+    </div>
 
-      <!-- Payment status (hidden) -->
-      <div id="status-section" style="display:none;margin-top:1.5rem;text-align:center;">
-        <div class="spinner"></div>
-        <p id="status-msg">Processing payment…</p>
-        <p class="text-muted" style="font-size:.8rem;">Reference: <code id="pay-ref"></code></p>
-        <button class="btn btn-outline btn-block mt-2" onclick="checkStatus()">Check Status</button>
-        <button class="btn btn-outline btn-block mt-1" onclick="hideRegister()">Back</button>
-      </div>
+    <!-- Payment status -->
+    <div id="status-section" style="display:none;">
+      <hr class="divider" />
+      <div class="spinner"></div>
+      <p id="status-msg" style="color:#444;font-size:.9rem;">Processing payment…</p>
+      <p style="font-size:.8rem;color:#888;margin-top:.5rem;">Reference: <code id="pay-ref"></code></p>
+      <button class="main-btn" style="margin-top:1rem;" onclick="checkStatus()">Check Status</button>
+      <a class="back-link" onclick="hideRegister()">← Back to login</a>
     </div>
   </div>
 
@@ -79,11 +155,17 @@
       if (e.key === 'Enter') handleLogin();
     });
 
+    function showAlert(id, msg, type = 'danger') {
+      document.getElementById(id).innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => { document.getElementById(id).innerHTML = ''; }, 6000);
+    }
+
     function showRegister() {
+      document.getElementById('login-section').style.display = 'none';
       document.getElementById('register-section').style.display = 'block';
-      document.getElementById('status-section').style.display = 'none';
     }
     function hideRegister() {
+      document.getElementById('login-section').style.display = 'block';
       document.getElementById('register-section').style.display = 'none';
       document.getElementById('status-section').style.display = 'none';
     }
@@ -92,7 +174,8 @@
       const mobile   = document.getElementById('mobile').value.trim();
       const password = document.getElementById('password').value.trim();
       if (!mobile) return showAlert('alert-box', 'Please enter your mobile number.');
-      setLoading('login-btn', true);
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true; btn.textContent = 'Please wait…';
       try {
         const res = await API.post('/api/login', { mobile, password: password || null });
         localStorage.setItem('token', res.token);
@@ -100,7 +183,7 @@
       } catch (e) {
         showAlert('alert-box', e.detail || 'Login failed. Please check your details.');
       } finally {
-        setLoading('login-btn', false);
+        btn.disabled = false; btn.textContent = 'Login';
       }
     }
 
@@ -111,7 +194,8 @@
       const affiliate = document.getElementById('reg-affiliate').value.trim();
       if (!name)   return showAlert('alert-box', 'Please enter your full name.');
       if (!mobile) return showAlert('alert-box', 'Please enter your mobile number.');
-      setLoading('pay-btn', true);
+      const btn = document.getElementById('pay-btn');
+      btn.disabled = true; btn.textContent = 'Please wait…';
       try {
         const payload = { name, mobile, method };
         if (affiliate) payload.affiliate_code = affiliate;
@@ -125,7 +209,7 @@
       } catch (e) {
         showAlert('alert-box', e.detail || 'Payment initiation failed.');
       } finally {
-        setLoading('pay-btn', false);
+        btn.disabled = false; btn.textContent = 'Pay 10 MZN & Register';
       }
     }
 
