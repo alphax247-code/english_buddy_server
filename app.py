@@ -1360,9 +1360,9 @@ def test_database_status():
 # =====================================================
 
 async def _poll_pending_payments():
-    """Re-check all pending payments every 2 hours."""
+    """Re-check all pending payments every 5 minutes."""
     while True:
-        await asyncio.sleep(2 * 60 * 60)
+        await asyncio.sleep(5 * 60)
         if not PAYSUITE_API_TOKEN:
             continue
 
