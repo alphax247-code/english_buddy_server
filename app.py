@@ -39,9 +39,24 @@ PAYSUITE_WEBHOOK_SECRET = os.getenv("PAYSUITE_WEBHOOK_SECRET", "")
 RETURN_URL = os.getenv("RETURN_URL", "http://127.0.0.1:8000/payment-return")
 CALLBACK_URL = os.getenv("CALLBACK_URL", "")
 
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")
+
+async def _keep_alive():
+    """Ping self every 14 minutes to prevent Render free tier spin-down."""
+    if not RENDER_EXTERNAL_URL:
+        return
+    await asyncio.sleep(60)  # wait for server to be ready
+    while True:
+        try:
+            requests.get(f"{RENDER_EXTERNAL_URL}/health", timeout=10)
+        except Exception:
+            pass
+        await asyncio.sleep(14 * 60)
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     asyncio.create_task(_poll_pending_payments())
+    asyncio.create_task(_keep_alive())
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -205,6 +220,10 @@ def update_affiliate_stats(payment: dict):
 # =====================================================
 # PAGES
 # =====================================================
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 @app.get("/", response_class=HTMLResponse)
 def login_page(request: Request):
