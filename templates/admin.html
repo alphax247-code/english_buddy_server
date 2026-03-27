@@ -150,13 +150,14 @@
       <div class="card">
         <div class="flex-between mb-2">
           <h2>Payment Management</h2>
-          <div class="flex">
+          <div class="flex" style="gap:.5rem;align-items:center;">
             <select id="payment-filter" onchange="filterPayments()">
               <option value="all">All Payments</option>
               <option value="pending">Pending</option>
               <option value="success">Success</option>
               <option value="failed">Failed</option>
             </select>
+            <button class="btn btn-primary btn-sm" id="sync-all-btn" onclick="syncAllPending()">↻ Sync Pending</button>
           </div>
         </div>
 
@@ -882,6 +883,7 @@
           <td><span class="badge badge-${p.status === 'success' ? 'success' : p.status === 'pending' ? 'warning' : 'danger'}">${p.status}</span></td>
           <td>${p.affiliate_code ? `<code>${p.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
           <td>${formatDate(p.created_at)}</td>
+          <td>${p.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${p.reference}')">↻ Sync</button>` : '-'}</td>
         </tr>
       `).join('');
 
@@ -897,6 +899,7 @@
               <th>Status</th>
               <th>Affiliate</th>
               <th>Date</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -962,6 +965,45 @@
           }
         }
       });
+    }
+
+    async function syncPayment(reference) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res = await API.post('/api/register/check-payment-status', { reference });
+        if (res.status === 'success') {
+          showAlert('alert-box', `Payment ${reference} confirmed as successful!`, 'success');
+        } else {
+          showAlert('alert-box', `Payment still ${res.status} according to Paysuite.`, 'warning');
+        }
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Sync failed.');
+        btn.disabled = false;
+        btn.textContent = '↻ Sync';
+      }
+    }
+
+    async function syncAllPending() {
+      const btn = document.getElementById('sync-all-btn');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+      const pending = allPayments.filter(p => p.status === 'pending');
+      let confirmed = 0;
+      for (const p of pending) {
+        try {
+          const res = await API.post('/api/register/check-payment-status', { reference: p.reference });
+          if (res.status === 'success') confirmed++;
+        } catch (_) {}
+      }
+      showAlert('alert-box', `Sync complete. ${confirmed} payment(s) confirmed.`, confirmed > 0 ? 'success' : 'info');
+      btn.disabled = false;
+      btn.textContent = '↻ Sync Pending';
+      loadPayments();
+      loadStats();
     }
 
     // ===== PAYOUTS =====
