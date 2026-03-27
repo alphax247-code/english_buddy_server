@@ -908,6 +908,22 @@
 
     function renderPaymentsChart(payments) {
       const successful = payments.filter(p => p.status === 'success');
+      const chartCard = document.getElementById('payments-chart').parentElement;
+
+      if (!successful.length) {
+        if (paymentsChart) { paymentsChart.destroy(); paymentsChart = null; }
+        document.getElementById('payments-chart').style.display = 'none';
+        if (!chartCard.querySelector('.empty-state')) {
+          chartCard.insertAdjacentHTML('beforeend', '<div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">No successful payments yet</div><div class="empty-state-subtitle">The chart will appear once payments are confirmed</div></div>');
+        }
+        return;
+      }
+
+      // Remove empty state if it was shown before
+      const existing = chartCard.querySelector('.empty-state');
+      if (existing) existing.remove();
+      document.getElementById('payments-chart').style.display = '';
+
       const counts = {};
       const today = new Date();
       for (let i = 29; i >= 0; i--) {
