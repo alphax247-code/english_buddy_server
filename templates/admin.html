@@ -161,6 +161,11 @@
           </div>
         </div>
 
+        <div class="flex" style="gap:.5rem;margin-bottom:1rem;">
+          <input type="text" id="manual-ref-input" placeholder="Paste reference to sync e.g. REG123..." style="flex:1;padding:.4rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.875rem;" />
+          <button class="btn btn-primary btn-sm" onclick="syncManualRef()">↻ Sync Reference</button>
+        </div>
+
         <div class="search-box">
           <input type="text" id="payment-search" placeholder="Search by reference or mobile..." oninput="filterPayments()" />
         </div>
@@ -984,6 +989,25 @@
         showAlert('alert-box', e.detail || 'Sync failed.');
         btn.disabled = false;
         btn.textContent = '↻ Sync';
+      }
+    }
+
+    async function syncManualRef() {
+      const input = document.getElementById('manual-ref-input');
+      const reference = input.value.trim();
+      if (!reference) return showAlert('alert-box', 'Please enter a reference.', 'warning');
+      try {
+        const res = await API.post('/api/register/check-payment-status', { reference });
+        if (res.status === 'success') {
+          showAlert('alert-box', `Payment ${reference} confirmed as successful!`, 'success');
+        } else {
+          showAlert('alert-box', `Payment status: ${res.status} — not confirmed by Paysuite.`, 'warning');
+        }
+        input.value = '';
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Sync failed. Reference may not exist in DB.');
       }
     }
 
