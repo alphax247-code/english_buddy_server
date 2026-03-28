@@ -159,6 +159,7 @@
             </select>
             <button class="btn btn-primary btn-sm" id="sync-all-btn" onclick="syncAllPending()">↻ Sync Pending</button>
             <button class="btn btn-warning btn-sm" id="import-btn" onclick="importFromPaysuite()">⬇ Import from Paysuite</button>
+            <button class="btn btn-danger btn-sm" onclick="clearPending()">🗑 Clear Pending</button>
           </div>
         </div>
 
@@ -1052,6 +1053,18 @@
         loadStats();
       } catch (e) {
         showAlert('alert-box', e.detail || 'Not found on Paysuite. Check the reference and try again.');
+      }
+    }
+
+    async function clearPending() {
+      if (!confirm('Remove ALL pending payments from the database? This cannot be undone.')) return;
+      try {
+        const res = await API.delete('/api/admin/payments/clear-pending');
+        showAlert('alert-box', res.message, 'success');
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to clear pending payments.');
       }
     }
 

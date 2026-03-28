@@ -933,6 +933,12 @@ def _process_imported_payment(p: dict):
     return {"reference": reference, "status": internal_status, "created": created}
 
 
+@app.delete("/api/admin/payments/clear-pending")
+def clear_pending_payments(admin: dict = Depends(get_admin_user)):
+    deleted = db.delete_payments_by_status("pending")
+    return {"ok": True, "deleted": deleted, "message": f"Removed {deleted} pending payment(s)"}
+
+
 @app.post("/api/admin/import-by-reference/{reference}")
 def import_by_reference(reference: str, admin: dict = Depends(get_admin_user)):
     """Look up a payment on Paysuite by reference and import/update it locally."""

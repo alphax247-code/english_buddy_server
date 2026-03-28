@@ -203,6 +203,17 @@ class JSONDatabase:
 
             return None
 
+    def delete_payments_by_status(self, status: str) -> int:
+        """Delete all payments with a given status. Returns count deleted."""
+        with self.lock:
+            data = self._read_data()
+            before = len(data["payments"])
+            data["payments"] = [p for p in data["payments"] if p["status"] != status]
+            deleted = before - len(data["payments"])
+            if deleted:
+                self._write_data(data)
+            return deleted
+
     def get_all_payments(self) -> List[Dict[str, Any]]:
         """Get all payments"""
         data = self._read_data()
