@@ -294,6 +294,8 @@ def login(payload: LoginPayload):
     user = db.get_user_by_mobile(mobile)
     if not user:
         raise HTTPException(status_code=404, detail="Number not registered. Please register first.")
+    if user.get("is_banned"):
+        raise HTTPException(status_code=403, detail="Your account has been suspended.")
     if not user["is_paid"]:
         raise HTTPException(status_code=403, detail="Payment not completed.")
 
@@ -1307,13 +1309,51 @@ def get_users():
                 "id": u["id"],
                 "name": u["name"],
                 "mobile": u["mobile"],
+                "role": u.get("role", "student"),
                 "is_paid": u["is_paid"],
                 "is_active": u["is_active"],
+                "is_banned": u.get("is_banned", False),
+                "affiliate_code": u.get("affiliate_code"),
                 "created_at": u["created_at"]
             }
             for u in users
         ]
     }
+
+
+class UpdateUserPayload(BaseModel):
+    role: Optional[str] = None
+    is_banned: Optional[bool] = None
+
+
+@app.put("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, payload: UpdateUserPayload, admin: dict = Depends(get_admin_user)):
+    user = db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    updates = {}
+    if payload.role is not None:
+        if payload.role not in ("student", "admin", "affiliate"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        updates["role"] = payload.role
+    if payload.is_banned is not None:
+        updates["is_banned"] = payload.is_banned
+        updates["is_active"] = not payload.is_banned
+
+    updated = db.update_user(user_id, **updates)
+    return {"ok": True, "user": updated}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, admin: dict = Depends(get_admin_user)):
+    user = db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("role") == "admin":
+        raise HTTPException(status_code=403, detail="Cannot delete admin account")
+    deleted = db.delete_user(user_id)
+    return {"ok": True, "deleted": deleted}
 
 
 @app.get("/api/database/payments")

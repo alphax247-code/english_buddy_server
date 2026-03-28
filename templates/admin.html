@@ -807,9 +807,21 @@
           <td><strong>${u.name}</strong></td>
           <td>${u.mobile}</td>
           <td><span class="badge badge-${u.is_paid ? 'success' : 'warning'}">${u.is_paid ? 'Paid' : 'Unpaid'}</span></td>
-          <td><span class="badge badge-${u.is_active ? 'success' : 'danger'}">${u.is_active ? 'Active' : 'Inactive'}</span></td>
+          <td><span class="badge badge-${u.is_banned ? 'danger' : u.is_active ? 'success' : 'warning'}">${u.is_banned ? 'Banned' : u.is_active ? 'Active' : 'Inactive'}</span></td>
+          <td><span class="badge">${u.role || 'student'}</span></td>
           <td>${u.affiliate_code ? `<code>${u.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
           <td>${formatDate(u.created_at)}</td>
+          <td>
+            <div class="flex" style="gap:.25rem;">
+              <select onchange="changeUserRole(${u.id}, this.value)" style="font-size:.75rem;padding:.2rem .4rem;border:1px solid var(--border);border-radius:4px;">
+                <option value="student" ${(u.role||'student')==='student'?'selected':''}>Student</option>
+                <option value="affiliate" ${u.role==='affiliate'?'selected':''}>Affiliate</option>
+                <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+              </select>
+              <button class="btn btn-sm ${u.is_banned ? 'btn-success' : 'btn-warning'}" onclick="toggleBan(${u.id}, ${!u.is_banned})">${u.is_banned ? 'Unban' : 'Ban'}</button>
+              ${u.role !== 'admin' ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id}, '${u.name}')">Delete</button>` : ''}
+            </div>
+          </td>
         </tr>
       `).join('');
 
@@ -822,8 +834,10 @@
               <th>Mobile</th>
               <th>Payment</th>
               <th>Status</th>
+              <th>Role</th>
               <th>Affiliate</th>
               <th>Joined</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -838,6 +852,39 @@
         u.mobile.toLowerCase().includes(search)
       );
       renderUsers(filtered);
+    }
+
+    async function changeUserRole(userId, role) {
+      try {
+        await API.put(`/api/admin/users/${userId}`, { role });
+        showAlert('alert-box', `Role updated to ${role}.`, 'success');
+        loadUsers();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to update role.');
+        loadUsers(); // reset dropdown
+      }
+    }
+
+    async function toggleBan(userId, ban) {
+      try {
+        await API.put(`/api/admin/users/${userId}`, { is_banned: ban });
+        showAlert('alert-box', ban ? 'User banned.' : 'User unbanned.', ban ? 'warning' : 'success');
+        loadUsers();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to update user.');
+      }
+    }
+
+    async function deleteUser(userId, name) {
+      if (!confirm(`Permanently delete user "${name}"? This cannot be undone.`)) return;
+      try {
+        await API.delete(`/api/admin/users/${userId}`);
+        showAlert('alert-box', `User "${name}" deleted.`, 'success');
+        loadUsers();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to delete user.');
+      }
     }
 
     // ===== PAYMENTS =====
@@ -888,7 +935,7 @@
           <td><span class="badge badge-${p.status === 'success' ? 'success' : p.status === 'pending' ? 'warning' : 'danger'}">${p.status}</span></td>
           <td>${p.affiliate_code ? `<code>${p.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
           <td>${formatDate(p.created_at)}</td>
-          <td>${p.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${p.reference}')">↻ Sync</button>` : '-'}</td>
+          <td>${(p.status === 'pending' || p.status === 'failed') ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${p.reference}')">↻ Sync</button>` : '-'}</td>
         </tr>
       `).join('');
 
@@ -1015,9 +1062,9 @@
       const btn = document.getElementById('sync-all-btn');
       btn.disabled = true;
       btn.textContent = 'Syncing...';
-      const pending = allPayments.filter(p => p.status === 'pending');
+      const toSync = allPayments.filter(p => p.status === 'pending' || p.status === 'failed');
       let confirmed = 0;
-      for (const p of pending) {
+      for (const p of toSync) {
         try {
           const res = await API.post('/api/register/check-payment-status', { reference: p.reference });
           if (res.status === 'success') confirmed++;

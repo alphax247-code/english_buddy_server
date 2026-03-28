@@ -113,6 +113,17 @@ class JSONDatabase:
 
             return None
 
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user by ID"""
+        with self.lock:
+            data = self._read_data()
+            before = len(data["users"])
+            data["users"] = [u for u in data["users"] if u["id"] != user_id]
+            if len(data["users"]) < before:
+                self._write_data(data)
+                return True
+            return False
+
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Get all users"""
         data = self._read_data()
