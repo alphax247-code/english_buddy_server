@@ -862,6 +862,137 @@ async def paysuite_webhook(request: Request):
 
 
 # =====================================================
+# ADMIN - IMPORT PAYMENTS FROM PAYSUITE
+# =====================================================
+
+def _resolve_paysuite_status(paysuite_status: str) -> str:
+    if paysuite_status in ("completed", "paid"):
+        return "success"
+    if paysuite_status in ("failed", "cancelled"):
+        return paysuite_status
+    return "pending"
+
+
+def _process_imported_payment(p: dict):
+    """Create or update a local payment record from a Paysuite payment object."""
+    reference = p.get("reference", "")
+    provider_id = str(p.get("id", ""))
+    transaction = p.get("transaction") or {}
+    paysuite_status = transaction.get("status", "pending")
+    internal_status = _resolve_paysuite_status(paysuite_status)
+
+    amount_raw = p.get("amount", 0)
+    try:
+        amount = int(float(amount_raw))
+    except Exception:
+        amount = 0
+
+    existing = db.get_payment_by_reference(reference)
+
+    if existing:
+        if existing["status"] != internal_status:
+            db.update_payment(reference, status=internal_status, provider_payment_id=provider_id)
+            existing = db.get_payment_by_reference(reference)
+        payment = existing
+        created = False
+    else:
+        # Extract details from Paysuite response
+        beneficiary = p.get("beneficiary") or {}
+        mobile = beneficiary.get("phone", "")
+        if mobile and not mobile.startswith("+"):
+            mobile = "+258" + mobile
+        name = beneficiary.get("holder", "Unknown")
+        method = p.get("method", "mpesa")
+        checkout_url = p.get("checkout_url")
+
+        try:
+            payment = db.create_payment(
+                name=name,
+                mobile=mobile,
+                reference=reference,
+                amount=amount,
+                method=method,
+                status=internal_status,
+                provider_payment_id=provider_id,
+                checkout_url=checkout_url,
+            )
+        except ValueError:
+            payment = db.get_payment_by_reference(reference)
+        created = True
+
+    # Activate user if successful
+    if internal_status == "success":
+        mobile = payment.get("mobile", "")
+        if mobile:
+            user = db.get_user_by_mobile(mobile)
+            if not user:
+                db.create_user(name=payment["name"], mobile=mobile, is_paid=True)
+            elif not user.get("is_paid"):
+                db.update_user(user["id"], is_paid=True, is_active=True)
+
+    return {"reference": reference, "status": internal_status, "created": created}
+
+
+@app.post("/api/admin/import-paysuite-payments")
+def import_paysuite_payments(admin: dict = Depends(get_admin_user)):
+    if not PAYSUITE_API_TOKEN:
+        raise HTTPException(status_code=500, detail="Missing Paysuite API token")
+
+    headers = {
+        "Authorization": f"Bearer {PAYSUITE_API_TOKEN}",
+        "Accept": "application/json"
+    }
+
+    imported, updated, errors = 0, 0, 0
+    page = 1
+
+    while True:
+        try:
+            response = requests.get(
+                f"{PAYSUITE_API_BASE}/payments",
+                headers=headers,
+                params={"page": page, "limit": 50},
+                timeout=30
+            )
+            if response.status_code != 200:
+                break
+            body = response.json()
+            payments = body.get("data", [])
+            if not payments:
+                break
+
+            for p in payments:
+                try:
+                    result = _process_imported_payment(p)
+                    if result["created"]:
+                        imported += 1
+                    else:
+                        updated += 1
+                except Exception as e:
+                    print(f"[IMPORT] Error on {p.get('reference')}: {e}")
+                    errors += 1
+
+            # Check if there are more pages
+            meta = body.get("meta") or body.get("pagination") or {}
+            total_pages = meta.get("last_page") or meta.get("total_pages") or 1
+            if page >= total_pages:
+                break
+            page += 1
+
+        except Exception as e:
+            print(f"[IMPORT] Page {page} failed: {e}")
+            break
+
+    return {
+        "ok": True,
+        "message": f"Import complete: {imported} new, {updated} updated, {errors} errors",
+        "imported": imported,
+        "updated": updated,
+        "errors": errors
+    }
+
+
+# =====================================================
 # ADMIN - AFFILIATE MANAGEMENT
 # =====================================================
 
