@@ -1045,17 +1045,13 @@
       const reference = input.value.trim();
       if (!reference) return showAlert('alert-box', 'Please enter a reference.', 'warning');
       try {
-        const res = await API.post('/api/register/check-payment-status', { reference });
-        if (res.status === 'success') {
-          showAlert('alert-box', `Payment ${reference} confirmed as successful!`, 'success');
-        } else {
-          showAlert('alert-box', `Payment status: ${res.status} — not confirmed by Paysuite.`, 'warning');
-        }
+        const res = await API.post(`/api/admin/import-by-reference/${encodeURIComponent(reference)}`, {});
+        showAlert('alert-box', res.message, res.status === 'success' ? 'success' : 'warning');
         input.value = '';
         loadPayments();
         loadStats();
       } catch (e) {
-        showAlert('alert-box', e.detail || 'Sync failed. Reference may not exist in DB.');
+        showAlert('alert-box', e.detail || 'Not found on Paysuite. Check the reference and try again.');
       }
     }
 

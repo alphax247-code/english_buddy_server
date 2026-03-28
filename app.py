@@ -933,6 +933,53 @@ def _process_imported_payment(p: dict):
     return {"reference": reference, "status": internal_status, "created": created}
 
 
+@app.post("/api/admin/import-by-reference/{reference}")
+def import_by_reference(reference: str, admin: dict = Depends(get_admin_user)):
+    """Look up a payment on Paysuite by reference and import/update it locally."""
+    if not PAYSUITE_API_TOKEN:
+        raise HTTPException(status_code=500, detail="Missing Paysuite API token")
+
+    headers = {
+        "Authorization": f"Bearer {PAYSUITE_API_TOKEN}",
+        "Accept": "application/json"
+    }
+
+    # Try searching Paysuite by reference
+    found = None
+    for param in [{"reference": reference}, {"search": reference}, {"q": reference}]:
+        try:
+            resp = requests.get(
+                f"{PAYSUITE_API_BASE}/payments",
+                headers=headers,
+                params={**param, "limit": 50},
+                timeout=30
+            )
+            if resp.status_code == 200:
+                items = resp.json().get("data", [])
+                if isinstance(items, list):
+                    for item in items:
+                        if item.get("reference") == reference:
+                            found = item
+                            break
+                if found:
+                    break
+        except Exception:
+            continue
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Reference '{reference}' not found on Paysuite")
+
+    result = _process_imported_payment(found)
+    payment = db.get_payment_by_reference(reference)
+    return {
+        "ok": True,
+        "status": result["status"],
+        "created": result["created"],
+        "message": f"Payment {'imported' if result['created'] else 'updated'} — status: {result['status']}",
+        "payment": payment
+    }
+
+
 @app.post("/api/admin/import-paysuite-payments")
 def import_paysuite_payments(admin: dict = Depends(get_admin_user)):
     if not PAYSUITE_API_TOKEN:
