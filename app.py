@@ -1480,6 +1480,26 @@ def get_payment_status_local(reference: str):
 
 
 # =====================================================
+# DATABASE MIGRATION
+# =====================================================
+
+@app.post("/api/admin/migrate-to-postgres")
+async def migrate_to_postgres(request: Request, admin: dict = Depends(get_admin_user)):
+    """
+    One-time migration: POST your database.json content as the request body.
+    This loads the snapshot into PostgreSQL so no data is lost.
+    """
+    if not db._use_postgres:
+        raise HTTPException(status_code=400, detail="DATABASE_URL not set — not using PostgreSQL")
+    try:
+        snapshot = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    db.load_snapshot(snapshot)
+    return {"ok": True, "message": "Migration complete. Data loaded into PostgreSQL."}
+
+
+# =====================================================
 # DEBUG ROUTES
 # =====================================================
 

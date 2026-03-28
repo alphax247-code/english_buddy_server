@@ -49,6 +49,7 @@ Thumbs.db
 # Database
 *.db
 *.sqlite3
+database.json
 
 # Logs
 *.log
