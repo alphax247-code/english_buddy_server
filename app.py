@@ -1187,6 +1187,64 @@ def set_affiliate_password(affiliate_id: int, payload: SetAffiliatePasswordPaylo
     }
 
 
+@app.get("/api/affiliate/dashboard")
+def get_affiliate_dashboard(authorization: str = Header(default="")):
+    """Affiliate's own dashboard data — uses affiliate token, no admin required."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization[7:]
+    try:
+        data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        affiliate_code = data.get("affiliate_code")
+        if not affiliate_code or data.get("role") != "affiliate":
+            raise HTTPException(status_code=403, detail="Not an affiliate account")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    affiliate = db.get_affiliate_by_code(affiliate_code)
+    if not affiliate:
+        raise HTTPException(status_code=404, detail="Affiliate not found")
+
+    users = db.get_users_by_affiliate(affiliate_code)
+    payments = db.get_payments_by_affiliate(affiliate_code, status="success")
+    payouts = db.get_payouts_by_affiliate(affiliate["id"])
+
+    return {
+        "ok": True,
+        "affiliate": {
+            "id": affiliate["id"],
+            "code": affiliate["code"],
+            "name": affiliate["name"],
+            "mobile": affiliate["mobile"],
+            "commission_rate": affiliate.get("commission_rate", 20),
+            "total_referrals": affiliate["total_referrals"],
+            "total_earnings": affiliate["total_earnings"]
+        },
+        "users": [{"name": u["name"], "mobile": u["mobile"], "created_at": u["created_at"]} for u in users],
+        "payments": [
+            {
+                "reference": p["reference"],
+                "amount": p["amount"],
+                "commission_amount": p["commission_amount"],
+                "commission_paid": p["commission_paid"],
+                "created_at": p["created_at"]
+            }
+            for p in payments
+        ],
+        "payouts": [
+            {
+                "id": p["id"],
+                "amount": p["amount"],
+                "method": p["method"],
+                "notes": p.get("notes"),
+                "paid_by": p.get("paid_by"),
+                "created_at": p["created_at"]
+            }
+            for p in payouts
+        ]
+    }
+
+
 @app.get("/api/admin/affiliates/{affiliate_code}/referrals")
 def get_affiliate_referrals(affiliate_code: str, admin: dict = Depends(get_admin_user)):
     affiliate = db.get_affiliate_by_code(affiliate_code)

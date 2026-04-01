@@ -224,15 +224,14 @@
         document.getElementById('nav-name').textContent = meRes.user.name;
         document.getElementById('affiliate-code-badge').textContent = affiliateCode;
 
-        // Get affiliate stats from admin endpoint
-        const res = await API.get(`/api/admin/affiliates/${affiliateCode}/referrals`);
+        const res = await API.get('/api/affiliate/dashboard');
 
         affiliateData = res;
 
         // Update stats
         document.getElementById('stat-referrals').textContent = res.affiliate.total_referrals || 0;
         document.getElementById('stat-earnings').textContent = formatAmount(res.affiliate.total_earnings || 0);
-        document.getElementById('stat-commission').textContent = `${res.affiliate.commission_rate}%`;
+        document.getElementById('stat-commission').textContent = `${res.affiliate.commission_rate || 20}%`;
         document.getElementById('stat-payouts').textContent = res.payouts?.length || 0;
 
         // Set referral link
