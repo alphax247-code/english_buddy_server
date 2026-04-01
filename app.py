@@ -53,8 +53,30 @@ async def _keep_alive():
             pass
         await asyncio.sleep(14 * 60)
 
+def _auto_migrate_if_empty():
+    """On startup: if PostgreSQL is empty, load database.json if it exists locally."""
+    if not db._use_postgres:
+        return
+    try:
+        data = db._read_data()
+        if any([data.get("users"), data.get("payments"), data.get("affiliates")]):
+            print("[STARTUP] PostgreSQL already has data — skipping migration")
+            return
+        import json as _json
+        local_file = os.path.join(os.path.dirname(__file__), "database.json")
+        if os.path.exists(local_file):
+            with open(local_file, "r", encoding="utf-8") as f:
+                snapshot = _json.load(f)
+            db.load_snapshot(snapshot)
+            print("[STARTUP] Migrated database.json → PostgreSQL")
+        else:
+            print("[STARTUP] PostgreSQL is empty, no database.json found — starting fresh")
+    except Exception as e:
+        print(f"[STARTUP] Auto-migration check failed: {e}")
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    _auto_migrate_if_empty()
     asyncio.create_task(_poll_pending_payments())
     asyncio.create_task(_keep_alive())
     yield

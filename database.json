@@ -1,0 +1,50 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Admin",
+      "mobile": "+258850219049",
+      "role": "admin",
+      "is_paid": true,
+      "is_active": true,
+      "affiliate_code": null,
+      "created_at": "2026-03-20T00:00:00+00:00"
+    },
+    {
+      "id": 2,
+      "name": "Admin",
+      "mobile": "admin",
+      "role": "admin",
+      "is_paid": true,
+      "is_active": true,
+      "affiliate_code": null,
+      "created_at": "2026-03-22T12:45:56.791052+00:00"
+    }
+  ],
+  "payments": [
+    {
+      "id": 1,
+      "name": "zeldo",
+      "mobile": "+258878127039",
+      "reference": "REG17739958627039012215",
+      "amount": 10,
+      "method": "emola",
+      "status": "pending",
+      "provider_payment_id": "01km569cpmbxa55fe760g6z8ps",
+      "provider_reference": null,
+      "checkout_url": "https://paysuite.tech/checkout/01km569cpmbxa55fe760g6z8ps",
+      "affiliate_code": null,
+      "commission_amount": 0,
+      "commission_paid": false,
+      "created_at": "2026-03-20T08:37:43.647844+00:00"
+    }
+  ],
+  "affiliates": [],
+  "payouts": [],
+  "_counters": {
+    "users": 2,
+    "payments": 1,
+    "affiliates": 0,
+    "payouts": 0
+  }
+}
