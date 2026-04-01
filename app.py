@@ -972,30 +972,39 @@ def import_by_reference(reference: str, admin: dict = Depends(get_admin_user)):
         "Accept": "application/json"
     }
 
-    # Try searching Paysuite by reference
+    # Scan all Paysuite pages to find the payment by reference
     found = None
-    for param in [{"reference": reference}, {"search": reference}, {"q": reference}]:
+    page = 1
+    while not found:
         try:
             resp = requests.get(
                 f"{PAYSUITE_API_BASE}/payments",
                 headers=headers,
-                params={**param, "limit": 50},
+                params={"page": page, "limit": 50},
                 timeout=30
             )
-            if resp.status_code == 200:
-                items = resp.json().get("data", [])
-                if isinstance(items, list):
-                    for item in items:
-                        if item.get("reference") == reference:
-                            found = item
-                            break
-                if found:
+            if resp.status_code != 200:
+                break
+            body = resp.json()
+            items = body.get("data", [])
+            if not items:
+                break
+            for item in items:
+                if item.get("reference") == reference:
+                    found = item
                     break
+            if found:
+                break
+            meta = body.get("meta") or body.get("pagination") or {}
+            total_pages = meta.get("last_page") or meta.get("total_pages") or 1
+            if page >= total_pages:
+                break
+            page += 1
         except Exception:
-            continue
+            break
 
     if not found:
-        raise HTTPException(status_code=404, detail=f"Reference '{reference}' not found on Paysuite")
+        raise HTTPException(status_code=404, detail=f"Reference '{reference}' not found on Paysuite after scanning {page} page(s)")
 
     result = _process_imported_payment(found)
     payment = db.get_payment_by_reference(reference)
