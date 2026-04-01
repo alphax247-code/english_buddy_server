@@ -71,6 +71,42 @@
         </div>
       </div>
 
+      <!-- Register New User -->
+      <div class="card">
+        <h2>Register a New User</h2>
+        <p class="text-muted mb-1">Enter the user's details — they confirm the payment on their phone</p>
+        <div id="register-alert"></div>
+        <div class="flex" style="gap:1rem;flex-wrap:wrap;">
+          <div class="form-group" style="flex:1;min-width:180px;">
+            <label>Full Name</label>
+            <input type="text" id="reg-name" placeholder="User's full name" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:180px;">
+            <label>Mobile Number</label>
+            <input type="tel" id="reg-mobile" placeholder="+258 84 000 0000" />
+          </div>
+          <div class="form-group" style="min-width:140px;">
+            <label>Payment Method</label>
+            <select id="reg-method">
+              <option value="mpesa">M-Pesa</option>
+              <option value="emola">e-Mola</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="reg-btn" onclick="registerUser()">Start Registration</button>
+
+        <div id="checkout-section" style="display:none;margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+          <p class="text-muted mb-1">Share this payment link with the user or open it for them to confirm:</p>
+          <div style="display:flex;gap:.5rem;margin-bottom:.75rem;">
+            <input type="text" id="checkout-url" readonly style="flex:1;font-size:.85rem;" />
+            <button class="btn btn-primary btn-sm" onclick="openCheckout()">Open</button>
+            <button class="btn btn-outline btn-sm" onclick="copyCheckout()">Copy</button>
+          </div>
+          <button class="btn btn-success btn-sm" id="check-status-btn" onclick="checkRegistrationStatus()">↻ Check Payment Status</button>
+          <div id="status-result" style="margin-top:.75rem;"></div>
+        </div>
+      </div>
+
       <!-- Referral Link -->
       <div class="card">
         <h2>Your Referral Link</h2>
@@ -283,6 +319,75 @@
           <tbody>${rows}</tbody>
         </table>
       `;
+    }
+
+    let pendingReference = null;
+
+    async function registerUser() {
+      const name = document.getElementById('reg-name').value.trim();
+      const mobile = document.getElementById('reg-mobile').value.trim();
+      const method = document.getElementById('reg-method').value;
+
+      if (!name || !mobile) {
+        showAlert('register-alert', 'Please enter the user\'s name and mobile number.');
+        return;
+      }
+
+      setLoading('reg-btn', true);
+      document.getElementById('checkout-section').style.display = 'none';
+      document.getElementById('status-result').innerHTML = '';
+
+      try {
+        const res = await API.post('/api/register/start-payment', {
+          name,
+          mobile,
+          method,
+          affiliate_code: affiliateCode
+        });
+
+        pendingReference = res.payment.reference;
+        document.getElementById('checkout-url').value = res.payment.checkout_url || '';
+        document.getElementById('checkout-section').style.display = 'block';
+        showAlert('register-alert', 'Payment started! Ask the user to confirm the payment popup.', 'success');
+
+      } catch (e) {
+        showAlert('register-alert', e.detail || 'Failed to start registration.');
+      } finally {
+        setLoading('reg-btn', false);
+      }
+    }
+
+    function openCheckout() {
+      const url = document.getElementById('checkout-url').value;
+      if (url) window.open(url, '_blank');
+    }
+
+    function copyCheckout() {
+      const input = document.getElementById('checkout-url');
+      input.select();
+      document.execCommand('copy');
+      showAlert('register-alert', 'Payment link copied!', 'success');
+    }
+
+    async function checkRegistrationStatus() {
+      if (!pendingReference) return;
+      setLoading('check-status-btn', true);
+      try {
+        const res = await API.post('/api/register/check-payment-status', { reference: pendingReference });
+        const div = document.getElementById('status-result');
+        if (res.status === 'success') {
+          div.innerHTML = '<div class="alert alert-success">✅ Payment confirmed! User is now registered.</div>';
+          document.getElementById('reg-name').value = '';
+          document.getElementById('reg-mobile').value = '';
+          loadAffiliateData();
+        } else {
+          div.innerHTML = `<div class="alert alert-warning">⏳ Status: ${res.status} — waiting for user to confirm payment.</div>`;
+        }
+      } catch (e) {
+        document.getElementById('status-result').innerHTML = `<div class="alert alert-danger">${e.detail || 'Failed to check status.'}</div>`;
+      } finally {
+        setLoading('check-status-btn', false);
+      }
     }
 
     function copyReferralLink() {
