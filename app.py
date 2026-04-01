@@ -99,7 +99,6 @@ class StartPaymentPayload(BaseModel):
     mobile: str
     name: str
     method: str = "mpesa"
-    affiliate_code: Optional[str] = None
 
 class CheckPaymentPayload(BaseModel):
     reference: str
@@ -437,14 +436,13 @@ def get_my_payments(user: dict = Depends(get_current_user)):
 # =====================================================
 
 @app.post("/api/register/start-payment")
-def start_registration_payment(payload: StartPaymentPayload):
+def start_registration_payment(payload: StartPaymentPayload, authorization: str = Header(default="")):
     if not PAYSUITE_API_TOKEN:
         raise HTTPException(status_code=500, detail="Missing Paysuite API token")
 
     mobile = process_mobile_number(payload.mobile)
     name = payload.name.strip()
     method = payload.method.strip().lower()
-    affiliate_code = payload.affiliate_code.strip() if payload.affiliate_code else None
 
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -455,11 +453,20 @@ def start_registration_payment(payload: StartPaymentPayload):
     if method not in {"mpesa", "emola", "credit_card"}:
         raise HTTPException(status_code=400, detail="Invalid payment method")
 
+    # Auto-detect affiliate from JWT if caller is an authenticated affiliate
+    affiliate_code = None
     affiliate = None
-    if affiliate_code:
-        affiliate = db.get_affiliate_by_code(affiliate_code)
-        if not affiliate or not affiliate["is_active"]:
-            raise HTTPException(status_code=400, detail="Invalid affiliate code")
+    if authorization.startswith("Bearer "):
+        try:
+            token_data = jwt.decode(authorization[7:], SECRET_KEY, algorithms=[ALGORITHM])
+            if token_data.get("role") == "affiliate" and token_data.get("affiliate_code"):
+                affiliate_code = token_data["affiliate_code"]
+                affiliate = db.get_affiliate_by_code(affiliate_code)
+                if not affiliate or not affiliate["is_active"]:
+                    affiliate_code = None
+                    affiliate = None
+        except JWTError:
+            pass
 
     existing_user = db.get_user_by_mobile(mobile)
     if existing_user:
