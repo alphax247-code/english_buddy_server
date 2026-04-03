@@ -978,9 +978,12 @@ def clear_pending_payments(admin: dict = Depends(get_admin_user)):
     return {"ok": True, "deleted": deleted, "message": f"Removed {deleted} pending payment(s)"}
 
 
-@app.post("/api/admin/import-by-reference/{reference}")
-def import_by_reference(reference: str, admin: dict = Depends(get_admin_user)):
-    """Look up a payment on Paysuite by reference and import/update it locally."""
+@app.post("/api/admin/sync-all-pending")
+def sync_all_pending(admin: dict = Depends(get_admin_user)):
+    """
+    Re-check every pending payment that has a provider_payment_id against Paysuite.
+    Paysuite only supports lookup by their internal ID — listing is not available.
+    """
     if not PAYSUITE_API_TOKEN:
         raise HTTPException(status_code=500, detail="Missing Paysuite API token")
 
@@ -989,106 +992,53 @@ def import_by_reference(reference: str, admin: dict = Depends(get_admin_user)):
         "Accept": "application/json"
     }
 
-    # Scan all Paysuite pages to find the payment by reference
-    found = None
-    page = 1
-    while not found:
+    all_payments = db.get_all_payments()
+    pending = [p for p in all_payments if p["status"] in ("pending", "failed") and p.get("provider_payment_id")]
+    confirmed, still_pending, errors = 0, 0, 0
+
+    for payment in pending:
         try:
             resp = requests.get(
-                f"{PAYSUITE_API_BASE}/payments",
+                f"{PAYSUITE_API_BASE}/payments/{payment['provider_payment_id']}",
                 headers=headers,
-                params={"page": page, "limit": 50},
                 timeout=30
             )
             if resp.status_code != 200:
-                break
-            body = resp.json()
-            items = body.get("data", [])
-            if not items:
-                break
-            for item in items:
-                if item.get("reference") == reference:
-                    found = item
-                    break
-            if found:
-                break
-            meta = body.get("meta") or body.get("pagination") or {}
-            total_pages = meta.get("last_page") or meta.get("total_pages") or 1
-            if page >= total_pages:
-                break
-            page += 1
-        except Exception:
-            break
+                errors += 1
+                continue
 
-    if not found:
-        raise HTTPException(status_code=404, detail=f"Reference '{reference}' not found on Paysuite after scanning {page} page(s)")
+            data = resp.json().get("data", {})
+            transaction = data.get("transaction") or {}
+            paysuite_status = transaction.get("status", "pending")
 
-    result = _process_imported_payment(found)
-    payment = db.get_payment_by_reference(reference)
-    return {
-        "ok": True,
-        "status": result["status"],
-        "created": result["created"],
-        "message": f"Payment {'imported' if result['created'] else 'updated'} — status: {result['status']}",
-        "payment": payment
-    }
-
-
-@app.post("/api/admin/import-paysuite-payments")
-def import_paysuite_payments(admin: dict = Depends(get_admin_user)):
-    if not PAYSUITE_API_TOKEN:
-        raise HTTPException(status_code=500, detail="Missing Paysuite API token")
-
-    headers = {
-        "Authorization": f"Bearer {PAYSUITE_API_TOKEN}",
-        "Accept": "application/json"
-    }
-
-    imported, updated, errors = 0, 0, 0
-    page = 1
-
-    while True:
-        try:
-            response = requests.get(
-                f"{PAYSUITE_API_BASE}/payments",
-                headers=headers,
-                params={"page": page, "limit": 50},
-                timeout=30
-            )
-            if response.status_code != 200:
-                break
-            body = response.json()
-            payments = body.get("data", [])
-            if not payments:
-                break
-
-            for p in payments:
-                try:
-                    result = _process_imported_payment(p)
-                    if result["created"]:
-                        imported += 1
-                    else:
-                        updated += 1
-                except Exception as e:
-                    print(f"[IMPORT] Error on {p.get('reference')}: {e}")
-                    errors += 1
-
-            # Check if there are more pages
-            meta = body.get("meta") or body.get("pagination") or {}
-            total_pages = meta.get("last_page") or meta.get("total_pages") or 1
-            if page >= total_pages:
-                break
-            page += 1
+            if paysuite_status in ("completed", "paid"):
+                db.update_payment(payment["reference"], status="success")
+                payment = db.get_payment_by_reference(payment["reference"])
+                existing_user = db.get_user_by_mobile(payment["mobile"])
+                if not existing_user:
+                    db.create_user(name=payment["name"], mobile=payment["mobile"], is_paid=True,
+                                   affiliate_code=payment.get("affiliate_code"))
+                    update_affiliate_stats(payment)
+                else:
+                    db.update_user(existing_user["id"], is_paid=True, is_active=True)
+                    if not payment.get("commission_paid"):
+                        update_affiliate_stats(payment)
+                confirmed += 1
+            elif paysuite_status in ("failed", "cancelled"):
+                db.update_payment(payment["reference"], status=paysuite_status)
+                errors += 1
+            else:
+                still_pending += 1
 
         except Exception as e:
-            print(f"[IMPORT] Page {page} failed: {e}")
-            break
+            print(f"[SYNC] Error on {payment['reference']}: {e}")
+            errors += 1
 
     return {
         "ok": True,
-        "message": f"Import complete: {imported} new, {updated} updated, {errors} errors",
-        "imported": imported,
-        "updated": updated,
+        "message": f"Sync complete: {confirmed} confirmed, {still_pending} still pending, {errors} errors/failed",
+        "confirmed": confirmed,
+        "still_pending": still_pending,
         "errors": errors
     }
 

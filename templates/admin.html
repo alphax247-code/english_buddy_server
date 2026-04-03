@@ -158,7 +158,6 @@
               <option value="failed">Failed</option>
             </select>
             <button class="btn btn-primary btn-sm" id="sync-all-btn" onclick="syncAllPending()">↻ Sync Pending</button>
-            <button class="btn btn-warning btn-sm" id="import-btn" onclick="importFromPaysuite()">⬇ Import from Paysuite</button>
             <button class="btn btn-danger btn-sm" onclick="clearPending()">🗑 Clear Pending</button>
           </div>
         </div>
@@ -1046,13 +1045,17 @@
       const reference = input.value.trim();
       if (!reference) return showAlert('alert-box', 'Please enter a reference.', 'warning');
       try {
-        const res = await API.post(`/api/admin/import-by-reference/${encodeURIComponent(reference)}`, {});
-        showAlert('alert-box', res.message, res.status === 'success' ? 'success' : 'warning');
+        const res = await API.post('/api/register/check-payment-status', { reference });
+        if (res.status === 'success') {
+          showAlert('alert-box', `Payment ${reference} confirmed as successful!`, 'success');
+        } else {
+          showAlert('alert-box', `Payment status: ${res.status} — not yet confirmed by Paysuite.`, 'warning');
+        }
         input.value = '';
         loadPayments();
         loadStats();
       } catch (e) {
-        showAlert('alert-box', e.detail || 'Not found on Paysuite. Check the reference and try again.');
+        showAlert('alert-box', e.detail || 'Reference not found in database.');
       }
     }
 
@@ -1068,39 +1071,20 @@
       }
     }
 
-    async function importFromPaysuite() {
-      const btn = document.getElementById('import-btn');
-      btn.disabled = true;
-      btn.textContent = 'Importing...';
-      try {
-        const res = await API.post('/api/admin/import-paysuite-payments', {});
-        showAlert('alert-box', res.message, 'success');
-        loadPayments();
-        loadStats();
-      } catch (e) {
-        showAlert('alert-box', e.detail || 'Import failed.');
-      }
-      btn.disabled = false;
-      btn.textContent = '⬇ Import from Paysuite';
-    }
-
     async function syncAllPending() {
       const btn = document.getElementById('sync-all-btn');
       btn.disabled = true;
       btn.textContent = 'Syncing...';
-      const toSync = allPayments.filter(p => p.status === 'pending' || p.status === 'failed');
-      let confirmed = 0;
-      for (const p of toSync) {
-        try {
-          const res = await API.post('/api/register/check-payment-status', { reference: p.reference });
-          if (res.status === 'success') confirmed++;
-        } catch (_) {}
+      try {
+        const res = await API.post('/api/admin/sync-all-pending', {});
+        showAlert('alert-box', res.message, res.confirmed > 0 ? 'success' : 'info');
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Sync failed.');
       }
-      showAlert('alert-box', `Sync complete. ${confirmed} payment(s) confirmed.`, confirmed > 0 ? 'success' : 'info');
       btn.disabled = false;
       btn.textContent = '↻ Sync Pending';
-      loadPayments();
-      loadStats();
     }
 
     // ===== PAYOUTS =====
