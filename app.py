@@ -978,6 +978,82 @@ def clear_pending_payments(admin: dict = Depends(get_admin_user)):
     return {"ok": True, "deleted": deleted, "message": f"Removed {deleted} pending payment(s)"}
 
 
+@app.post("/api/admin/import-by-paysuite-id/{paysuite_id}")
+def import_by_paysuite_id(paysuite_id: str, admin: dict = Depends(get_admin_user)):
+    """Look up a payment directly by Paysuite's internal ID and import it into the DB."""
+    if not PAYSUITE_API_TOKEN:
+        raise HTTPException(status_code=500, detail="Missing Paysuite API token")
+
+    headers = {
+        "Authorization": f"Bearer {PAYSUITE_API_TOKEN}",
+        "Accept": "application/json"
+    }
+
+    try:
+        resp = requests.get(
+            f"{PAYSUITE_API_BASE}/payments/{paysuite_id}",
+            headers=headers,
+            timeout=30
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Paysuite request failed: {e}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=404, detail="Payment not found on Paysuite")
+
+    data = resp.json().get("data", {})
+    if not data:
+        raise HTTPException(status_code=404, detail="Empty response from Paysuite")
+
+    # Determine status from transaction
+    transaction = data.get("transaction") or {}
+    paysuite_status = transaction.get("status", "pending")
+    internal_status = _resolve_paysuite_status(paysuite_status)
+
+    reference = data.get("reference", "")
+    amount_raw = data.get("amount", 0)
+    try:
+        amount = int(float(amount_raw))
+    except Exception:
+        amount = 0
+
+    # Check if already in DB
+    existing = db.get_payment_by_reference(reference)
+    if existing:
+        db.update_payment(reference, status=internal_status, provider_payment_id=paysuite_id)
+    else:
+        # Create from Paysuite data — name/mobile unknown so use description
+        description = data.get("description", "")
+        name = description.replace("English Buddy registration for ", "").strip() or "Unknown"
+        method = data.get("method", "mpesa")
+        try:
+            db.create_payment(
+                name=name, mobile="", reference=reference, amount=amount,
+                method=method, status=internal_status, provider_payment_id=paysuite_id,
+                checkout_url=data.get("checkout_url")
+            )
+        except ValueError:
+            db.update_payment(reference, status=internal_status, provider_payment_id=paysuite_id)
+
+    payment = db.get_payment_by_reference(reference)
+
+    # Activate user if success and mobile is known
+    if internal_status == "success" and payment.get("mobile"):
+        user = db.get_user_by_mobile(payment["mobile"])
+        if not user:
+            db.create_user(name=payment["name"], mobile=payment["mobile"], is_paid=True)
+        elif not user.get("is_paid"):
+            db.update_user(user["id"], is_paid=True, is_active=True)
+
+    return {
+        "ok": True,
+        "status": internal_status,
+        "reference": reference,
+        "message": f"Payment {reference} — status: {internal_status}",
+        "note": "If mobile was unknown, user was not auto-created. Set mobile manually in Users tab." if not payment.get("mobile") else ""
+    }
+
+
 @app.post("/api/admin/sync-all-pending")
 def sync_all_pending(admin: dict = Depends(get_admin_user)):
     """

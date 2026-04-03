@@ -162,9 +162,13 @@
           </div>
         </div>
 
-        <div class="flex" style="gap:.5rem;margin-bottom:1rem;">
-          <input type="text" id="manual-ref-input" placeholder="Paste reference to sync e.g. REG123..." style="flex:1;padding:.4rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.875rem;" />
+        <div class="flex" style="gap:.5rem;margin-bottom:.5rem;">
+          <input type="text" id="manual-ref-input" placeholder="Reference (REG...) — must exist in DB" style="flex:1;padding:.4rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.875rem;" />
           <button class="btn btn-primary btn-sm" onclick="syncManualRef()">↻ Sync Reference</button>
+        </div>
+        <div class="flex" style="gap:.5rem;margin-bottom:1rem;">
+          <input type="text" id="paysuite-id-input" placeholder="Paysuite ID (e.g. 01kmtmgntz7dk...) — import from Paysuite dashboard" style="flex:1;padding:.4rem .75rem;border:1px solid var(--border);border-radius:6px;font-size:.875rem;" />
+          <button class="btn btn-success btn-sm" onclick="importByPaysuiteId()">⬇ Import by ID</button>
         </div>
 
         <div class="search-box">
@@ -1037,6 +1041,21 @@
         showAlert('alert-box', e.detail || 'Sync failed.');
         btn.disabled = false;
         btn.textContent = '↻ Sync';
+      }
+    }
+
+    async function importByPaysuiteId() {
+      const input = document.getElementById('paysuite-id-input');
+      const id = input.value.trim();
+      if (!id) return showAlert('alert-box', 'Please paste the Paysuite ID.', 'warning');
+      try {
+        const res = await API.post(`/api/admin/import-by-paysuite-id/${encodeURIComponent(id)}`, {});
+        showAlert('alert-box', res.message + (res.note ? ' ' + res.note : ''), res.status === 'success' ? 'success' : 'warning');
+        input.value = '';
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Not found on Paysuite.');
       }
     }
 
