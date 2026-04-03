@@ -935,19 +935,17 @@ def _process_imported_payment(p: dict):
         payment = existing
         created = False
     else:
-        # Extract details from Paysuite response
-        beneficiary = p.get("beneficiary") or {}
-        mobile = beneficiary.get("phone", "")
-        if mobile and not mobile.startswith("+"):
-            mobile = "+258" + mobile
-        name = beneficiary.get("holder", "Unknown")
+        # Paysuite does NOT return payer mobile/name in payment responses.
+        # Extract name from description if present.
+        description = p.get("description", "")
+        name = description.replace("English Buddy registration for ", "").strip() or "Unknown"
         method = p.get("method", "mpesa")
         checkout_url = p.get("checkout_url")
 
         try:
             payment = db.create_payment(
                 name=name,
-                mobile=mobile,
+                mobile="",  # Paysuite does not expose payer phone on payments
                 reference=reference,
                 amount=amount,
                 method=method,
