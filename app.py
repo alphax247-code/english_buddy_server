@@ -307,9 +307,19 @@ def login(payload: LoginPayload):
             if not aff_user:
                 aff_user = db.create_user(name=affiliate["name"], mobile=aff_user_mobile,
                                           is_paid=True, role="affiliate")
-            token = create_token(aff_user)
+            # Include affiliate_code in token so dashboard and start-payment can use it
+            payload_data = {
+                "user_id": aff_user["id"],
+                "affiliate_id": affiliate["id"],
+                "affiliate_code": affiliate["code"],
+                "role": "affiliate",
+                "exp": datetime.now(timezone.utc) + timedelta(days=30)
+            }
+            token = jwt.encode(payload_data, SECRET_KEY, algorithm=ALGORITHM)
             return {"ok": True, "token": token, "role": "affiliate", "redirect": "/affiliate",
-                    "user": {"id": aff_user["id"], "name": affiliate["name"], "role": "affiliate"}}
+                    "user": {"id": aff_user["id"], "name": affiliate["name"],
+                             "mobile": mobile, "role": "affiliate",
+                             "affiliate_code": affiliate["code"]}}
 
     # ── REGULAR USER ──────────────────────────────────────────────────────
     user = db.get_user_by_mobile(mobile)
