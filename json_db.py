@@ -24,7 +24,8 @@ EMPTY_DB = {
     "affiliates": [],
     "payouts": [],
     "practice_sessions": [],
-    "_counters": {"users": 0, "payments": 0, "affiliates": 0, "payouts": 0, "practice_sessions": 0}
+    "promotions": [],
+    "_counters": {"users": 0, "payments": 0, "affiliates": 0, "payouts": 0, "practice_sessions": 0, "promotions": 0}
 }
 
 # XP thresholds and levels
@@ -448,6 +449,63 @@ class JSONDatabase:
             self._write_data(data)
             return affiliate
 
+
+    # =====================================================
+    # PROMOTIONS
+    # =====================================================
+
+    def create_promotion(self, name: str, description: str, extra_days: int,
+                         start_date: str, end_date: str) -> Dict[str, Any]:
+        with self.lock:
+            data = self._read_data()
+            if "promotions" not in data:
+                data["promotions"] = []
+            promo_id = self._get_next_id("promotions", data)
+            promo = {
+                "id": promo_id,
+                "name": name,
+                "description": description,
+                "extra_days": extra_days,
+                "start_date": start_date,
+                "end_date": end_date,
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            data["promotions"].append(promo)
+            self._write_data(data)
+            return promo
+
+    def get_all_promotions(self) -> List[Dict[str, Any]]:
+        data = self._read_data()
+        return sorted(data.get("promotions", []), key=lambda x: x["created_at"], reverse=True)
+
+    def get_active_promotions(self) -> List[Dict[str, Any]]:
+        now = datetime.now(timezone.utc).isoformat()
+        data = self._read_data()
+        return [
+            p for p in data.get("promotions", [])
+            if p.get("is_active") and p.get("start_date", "") <= now <= p.get("end_date", "")
+        ]
+
+    def update_promotion(self, promo_id: int, **kwargs) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            data = self._read_data()
+            for p in data.get("promotions", []):
+                if p["id"] == promo_id:
+                    p.update(kwargs)
+                    self._write_data(data)
+                    return p
+            return None
+
+    def delete_promotion(self, promo_id: int) -> bool:
+        with self.lock:
+            data = self._read_data()
+            before = len(data.get("promotions", []))
+            data["promotions"] = [p for p in data.get("promotions", []) if p["id"] != promo_id]
+            if len(data["promotions"]) < before:
+                self._write_data(data)
+                return True
+            return False
 
     # =====================================================
     # PRACTICE SESSION OPERATIONS

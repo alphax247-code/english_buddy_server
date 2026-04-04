@@ -1610,6 +1610,65 @@ def get_payment_status_local(reference: str):
 
 
 # =====================================================
+# ADMIN - PROMOTIONS
+# =====================================================
+
+class CreatePromotionPayload(BaseModel):
+    name: str
+    description: str = ""
+    extra_days: int
+    start_date: str   # ISO date string e.g. "2026-04-01T00:00:00+00:00"
+    end_date: str
+
+class UpdatePromotionPayload(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    extra_days: Optional[int] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    is_active: Optional[bool] = None
+
+@app.get("/api/admin/promotions")
+def list_promotions(admin: dict = Depends(get_admin_user)):
+    return {"ok": True, "promotions": db.get_all_promotions()}
+
+@app.post("/api/admin/promotions")
+def create_promotion(payload: CreatePromotionPayload, admin: dict = Depends(get_admin_user)):
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+    if payload.extra_days < 1:
+        raise HTTPException(status_code=400, detail="extra_days must be at least 1")
+    promo = db.create_promotion(
+        name=payload.name.strip(),
+        description=payload.description.strip(),
+        extra_days=payload.extra_days,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+    )
+    return {"ok": True, "promotion": promo}
+
+@app.put("/api/admin/promotions/{promo_id}")
+def update_promotion(promo_id: int, payload: UpdatePromotionPayload, admin: dict = Depends(get_admin_user)):
+    updates = {k: v for k, v in payload.dict().items() if v is not None}
+    promo = db.update_promotion(promo_id, **updates)
+    if not promo:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    return {"ok": True, "promotion": promo}
+
+@app.delete("/api/admin/promotions/{promo_id}")
+def delete_promotion(promo_id: int, admin: dict = Depends(get_admin_user)):
+    deleted = db.delete_promotion(promo_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    return {"ok": True, "message": "Promotion deleted"}
+
+@app.get("/api/promotions/active")
+def get_active_promotions():
+    """Public endpoint — Flutter can check active promos without auth."""
+    return {"ok": True, "promotions": db.get_active_promotions()}
+
+
+# =====================================================
 # DATABASE MIGRATION
 # =====================================================
 
@@ -1736,44 +1795,67 @@ def test_database_status():
 from speech_service import transcribe_audio, evaluate_text, CONVERSATIONS
 from fastapi import UploadFile, File
 
-PRACTICE_ACCESS_MONTHS = 3       # free access window after registration
-DOUBLE_XP_USER_LIMIT   = 200     # first N users get double XP
+PRACTICE_BASE_DAYS    = 90    # standard access: 3 months
+EARLY_USER_LIMIT      = 200   # first N users get double access days
+EARLY_USER_DAYS       = 180   # 6 months for early users (double)
 
 
 def _check_practice_access(user: dict) -> dict:
     """
-    Returns access info:
-      - allowed: bool
-      - days_remaining: int
-      - double_xp: bool  (first 200 users)
-      - reason: str (human-readable, sent to Flutter)
+    Access rules:
+    - First 200 users: 180 days (6 months)
+    - Everyone else:    90 days (3 months)
+    - Active promotions can extend access further.
     """
+    now = datetime.now(timezone.utc)
     created_at = user.get("created_at", "")
     try:
         registered = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     except Exception:
-        registered = datetime.now(timezone.utc)
+        registered = now
 
-    expiry = registered + timedelta(days=PRACTICE_ACCESS_MONTHS * 30)
-    now = datetime.now(timezone.utc)
+    is_early_user = user["id"] <= EARLY_USER_LIMIT
+    base_days = EARLY_USER_DAYS if is_early_user else PRACTICE_BASE_DAYS
+    expiry = registered + timedelta(days=base_days)
+
+    # Check active promotions — pick the one with the furthest expiry
+    promos = db.get_active_promotions()
+    promo_bonus_days = 0
+    active_promo = None
+    for promo in promos:
+        try:
+            promo_end = datetime.fromisoformat(promo["end_date"].replace("Z", "+00:00"))
+            if now <= promo_end:
+                if promo.get("extra_days", 0) > promo_bonus_days:
+                    promo_bonus_days = promo["extra_days"]
+                    active_promo = promo
+        except Exception:
+            continue
+
+    if promo_bonus_days:
+        expiry = expiry + timedelta(days=promo_bonus_days)
+
     allowed = now < expiry
     days_remaining = max(0, (expiry - now).days)
 
-    # First 200 users by ID get double XP
-    double_xp = user["id"] <= DOUBLE_XP_USER_LIMIT
+    if allowed and is_early_user and active_promo:
+        reason = f"Early user + promo '{active_promo['name']}' — {days_remaining} days left."
+    elif allowed and is_early_user:
+        reason = f"Early user bonus: {days_remaining} days of practice remaining."
+    elif allowed and active_promo:
+        reason = f"Promo '{active_promo['name']}' active — {days_remaining} days left."
+    elif allowed:
+        reason = f"Practice available for {days_remaining} more days."
+    else:
+        reason = "Your free practice access has expired."
 
     return {
         "allowed": allowed,
         "days_remaining": days_remaining,
         "expiry_date": expiry.isoformat(),
-        "double_xp": double_xp,
-        "reason": (
-            f"Early access bonus! Double XP — {days_remaining} days left."
-            if allowed and double_xp else
-            f"Practice available for {days_remaining} more days."
-            if allowed else
-            "Your 3-month free practice access has expired."
-        )
+        "is_early_user": is_early_user,
+        "active_promo": active_promo["name"] if active_promo else None,
+        "reason": reason,
     }
 
 
@@ -1852,7 +1934,7 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
         examples=feedback.get("examples", []),
         grammar_score=feedback.get("grammar_score", 5),
         pronunciation_score=feedback.get("pronunciation_score", 5),
-        double_xp=access["double_xp"],
+        double_xp=False,
     )
 
     progress = db.get_user_progress(user["id"])
@@ -1868,10 +1950,11 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
             "pronunciation_score": feedback.get("pronunciation_score", 5),
         },
         "xp_earned": session["xp_earned"],
-        "double_xp": access["double_xp"],
         "access": {
             "days_remaining": access["days_remaining"],
             "expiry_date": access["expiry_date"],
+            "is_early_user": access["is_early_user"],
+            "active_promo": access["active_promo"],
             "reason": access["reason"],
         },
         "progress": {

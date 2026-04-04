@@ -72,6 +72,7 @@
       <button class="tab-btn" onclick="switchTab('users')">👤 Users</button>
       <button class="tab-btn" onclick="switchTab('payments')">💳 Payments</button>
       <button class="tab-btn" onclick="switchTab('payouts')">💰 Payouts</button>
+      <button class="tab-btn" onclick="switchTab('promotions')">🎁 Promotions</button>
     </div>
 
     <!-- OVERVIEW TAB -->
@@ -220,6 +221,46 @@
           <input type="text" id="payout-search" placeholder="Search payouts..." oninput="filterPayouts()" />
         </div>
         <div id="payouts-table"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- PROMOTIONS TAB -->
+    <div id="tab-promotions" style="display:none;">
+      <div class="card">
+        <div class="flex-between mb-2">
+          <h2>Promotions</h2>
+        </div>
+        <p class="text-muted mb-2">Create deals that extend practice access for all users during a set period.</p>
+        <div id="promo-alert"></div>
+
+        <div class="flex" style="gap:1rem;flex-wrap:wrap;">
+          <div class="form-group" style="flex:1;min-width:160px;">
+            <label>Promotion Name</label>
+            <input type="text" id="promo-name" placeholder="e.g. Easter Special" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:200px;">
+            <label>Description</label>
+            <input type="text" id="promo-desc" placeholder="Short description (optional)" />
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label>Extra Days</label>
+            <input type="number" id="promo-days" placeholder="e.g. 30" min="1" max="365" />
+          </div>
+          <div class="form-group" style="min-width:160px;">
+            <label>Start Date</label>
+            <input type="datetime-local" id="promo-start" />
+          </div>
+          <div class="form-group" style="min-width:160px;">
+            <label>End Date</label>
+            <input type="datetime-local" id="promo-end" />
+          </div>
+        </div>
+        <button class="btn btn-success" id="create-promo-btn" onclick="createPromotion()">🎁 Create Promotion</button>
+      </div>
+
+      <div class="card">
+        <h2>All Promotions</h2>
+        <div id="promotions-table"><div class="spinner"></div></div>
       </div>
     </div>
   </div>
@@ -392,18 +433,18 @@
 
     // ===== TAB SWITCHING =====
     function switchTab(tabName) {
-      ['overview', 'affiliates', 'users', 'payments', 'payouts'].forEach(t => {
+      ['overview', 'affiliates', 'users', 'payments', 'payouts', 'promotions'].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === tabName ? 'block' : 'none';
       });
 
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       event.target.classList.add('active');
 
-      // Load data for tab
       if (tabName === 'affiliates') loadAffiliates();
       if (tabName === 'users') loadUsers();
       if (tabName === 'payments') loadPayments();
       if (tabName === 'payouts') loadPayouts();
+      if (tabName === 'promotions') loadPromotions();
       if (tabName === 'overview') {
         loadRecentActivity();
         loadTopAffiliates();
@@ -1328,6 +1369,106 @@
         `;
       } catch (e) {
         document.getElementById('top-affiliates').innerHTML = '<div class="text-muted">Failed to load top affiliates</div>';
+      }
+    }
+
+    // ===== PROMOTIONS =====
+    async function loadPromotions() {
+      try {
+        const res = await API.get('/api/admin/promotions');
+        const promos = res.promotions || [];
+        const el = document.getElementById('promotions-table');
+        if (!promos.length) {
+          el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎁</div><div class="empty-state-title">No promotions yet</div></div>';
+          return;
+        }
+        const now = new Date();
+        const rows = promos.map(p => {
+          const start = new Date(p.start_date);
+          const end = new Date(p.end_date);
+          const isLive = p.is_active && now >= start && now <= end;
+          const isExpired = now > end;
+          const status = !p.is_active ? 'Disabled' : isExpired ? 'Expired' : isLive ? 'Live' : 'Scheduled';
+          const badgeClass = status === 'Live' ? 'success' : status === 'Scheduled' ? 'warning' : 'danger';
+          return `<tr>
+            <td><strong>${p.name}</strong></td>
+            <td>${p.description || '-'}</td>
+            <td><strong>+${p.extra_days} days</strong></td>
+            <td>${formatDate(p.start_date)}</td>
+            <td>${formatDate(p.end_date)}</td>
+            <td><span class="badge badge-${badgeClass}">${status}</span></td>
+            <td>
+              <div class="flex" style="gap:.25rem;">
+                <button class="btn btn-sm btn-${p.is_active ? 'warning' : 'success'}" onclick="togglePromo(${p.id}, ${!p.is_active})">${p.is_active ? 'Disable' : 'Enable'}</button>
+                <button class="btn btn-sm btn-danger" onclick="deletePromo(${p.id}, '${p.name}')">Delete</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+        el.innerHTML = `<table><thead><tr>
+          <th>Name</th><th>Description</th><th>Bonus</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+      } catch (e) {
+        document.getElementById('promotions-table').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">Failed to load promotions</div></div>';
+      }
+    }
+
+    async function createPromotion() {
+      const name = document.getElementById('promo-name').value.trim();
+      const desc = document.getElementById('promo-desc').value.trim();
+      const days = parseInt(document.getElementById('promo-days').value);
+      const start = document.getElementById('promo-start').value;
+      const end = document.getElementById('promo-end').value;
+
+      if (!name || !days || !start || !end) {
+        showAlert('promo-alert', 'Please fill in name, extra days, start and end date.');
+        return;
+      }
+      if (new Date(end) <= new Date(start)) {
+        showAlert('promo-alert', 'End date must be after start date.');
+        return;
+      }
+
+      setLoading('create-promo-btn', true);
+      try {
+        await API.post('/api/admin/promotions', {
+          name,
+          description: desc,
+          extra_days: days,
+          start_date: new Date(start).toISOString(),
+          end_date: new Date(end).toISOString(),
+        });
+        showAlert('promo-alert', `Promotion "${name}" created!`, 'success');
+        document.getElementById('promo-name').value = '';
+        document.getElementById('promo-desc').value = '';
+        document.getElementById('promo-days').value = '';
+        document.getElementById('promo-start').value = '';
+        document.getElementById('promo-end').value = '';
+        loadPromotions();
+      } catch (e) {
+        showAlert('promo-alert', e.detail || 'Failed to create promotion.');
+      } finally {
+        setLoading('create-promo-btn', false);
+      }
+    }
+
+    async function togglePromo(id, isActive) {
+      try {
+        await API.put(`/api/admin/promotions/${id}`, { is_active: isActive });
+        loadPromotions();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to update promotion.');
+      }
+    }
+
+    async function deletePromo(id, name) {
+      if (!confirm(`Delete promotion "${name}"?`)) return;
+      try {
+        await API.delete(`/api/admin/promotions/${id}`);
+        showAlert('alert-box', `Promotion "${name}" deleted.`, 'success');
+        loadPromotions();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to delete promotion.');
       }
     }
 
