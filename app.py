@@ -1730,6 +1730,124 @@ def test_database_status():
 
 
 # =====================================================
+# SPEECH PRACTICE
+# =====================================================
+
+from speech_service import transcribe_audio, evaluate_text, CONVERSATIONS
+from fastapi import UploadFile, File
+
+class EvaluateTextPayload(BaseModel):
+    text: str
+    conversation_id: Optional[int] = None
+
+@app.get("/api/practice/conversations")
+def get_conversations(user: dict = Depends(get_current_user)):
+    return {"ok": True, "conversations": CONVERSATIONS}
+
+@app.post("/api/practice/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+    try:
+        audio_bytes = await file.read()
+        transcript = transcribe_audio(audio_bytes, filename=file.filename or "audio.m4a")
+        return {"ok": True, "transcript": transcript}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/practice/evaluate")
+def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user)):
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    try:
+        feedback = evaluate_text(payload.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Find conversation context
+    conversation_id = payload.conversation_id or 0
+    scenario = ""
+    question = ""
+    if conversation_id:
+        conv = next((c for c in CONVERSATIONS if c["id"] == conversation_id), None)
+        if conv:
+            scenario = conv["scenario"]
+            question = conv["question"]
+
+    # Save session and update XP
+    session = db.save_practice_session(
+        user_id=user["id"],
+        conversation_id=conversation_id,
+        scenario=scenario,
+        question=question,
+        transcript=payload.text,
+        corrected=feedback.get("corrected", ""),
+        grammar=feedback.get("grammar", ""),
+        pronunciation=feedback.get("pronunciation", ""),
+        examples=feedback.get("examples", []),
+        grammar_score=feedback.get("grammar_score", 5),
+        pronunciation_score=feedback.get("pronunciation_score", 5),
+    )
+
+    progress = db.get_user_progress(user["id"])
+
+    return {
+        "ok": True,
+        "feedback": {
+            "corrected": feedback.get("corrected", ""),
+            "grammar": feedback.get("grammar", ""),
+            "pronunciation": feedback.get("pronunciation", ""),
+            "examples": feedback.get("examples", []),
+            "grammar_score": feedback.get("grammar_score", 5),
+            "pronunciation_score": feedback.get("pronunciation_score", 5),
+        },
+        "xp_earned": session["xp_earned"],
+        "progress": {
+            "xp": progress["xp"],
+            "level": progress["level"],
+            "next_level": progress["next_level"],
+            "xp_to_next": progress["xp_to_next"],
+            "total_sessions": progress["total_sessions"],
+        }
+    }
+
+@app.get("/api/practice/progress")
+def get_progress(user: dict = Depends(get_current_user)):
+    progress = db.get_user_progress(user["id"])
+    if not progress:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True, "progress": progress}
+
+@app.get("/api/practice/history")
+def get_history(user: dict = Depends(get_current_user)):
+    sessions = db.get_sessions_by_user(user["id"])
+    return {
+        "ok": True,
+        "total": len(sessions),
+        "sessions": [
+            {
+                "id": s["id"],
+                "scenario": s["scenario"],
+                "question": s["question"],
+                "transcript": s["transcript"],
+                "corrected": s["corrected"],
+                "grammar_score": s["grammar_score"],
+                "pronunciation_score": s["pronunciation_score"],
+                "xp_earned": s["xp_earned"],
+                "created_at": s["created_at"]
+            }
+            for s in sessions
+        ]
+    }
+
+
+# =====================================================
 # BACKGROUND POLLING
 # =====================================================
 

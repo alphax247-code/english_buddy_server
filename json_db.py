@@ -23,8 +23,33 @@ EMPTY_DB = {
     "payments": [],
     "affiliates": [],
     "payouts": [],
-    "_counters": {"users": 0, "payments": 0, "affiliates": 0, "payouts": 0}
+    "practice_sessions": [],
+    "_counters": {"users": 0, "payments": 0, "affiliates": 0, "payouts": 0, "practice_sessions": 0}
 }
+
+# XP thresholds and levels
+LEVELS = [
+    {"name": "Beginner",     "min_xp": 0},
+    {"name": "Elementary",   "min_xp": 100},
+    {"name": "Pre-intermediate", "min_xp": 300},
+    {"name": "Intermediate", "min_xp": 600},
+    {"name": "Upper-intermediate", "min_xp": 1000},
+    {"name": "Advanced",     "min_xp": 1500},
+]
+
+def get_level(xp: int) -> dict:
+    level = LEVELS[0]
+    for l in LEVELS:
+        if xp >= l["min_xp"]:
+            level = l
+    idx = LEVELS.index(level)
+    next_level = LEVELS[idx + 1] if idx + 1 < len(LEVELS) else None
+    return {
+        "name": level["name"],
+        "xp": xp,
+        "next_level": next_level["name"] if next_level else None,
+        "xp_to_next": (next_level["min_xp"] - xp) if next_level else 0,
+    }
 
 
 class JSONDatabase:
@@ -422,6 +447,85 @@ class JSONDatabase:
             affiliate["total_earnings"] = affiliate.get("total_earnings", 0) + amount
             self._write_data(data)
             return affiliate
+
+
+    # =====================================================
+    # PRACTICE SESSION OPERATIONS
+    # =====================================================
+
+    def save_practice_session(self, user_id: int, conversation_id: int, scenario: str,
+                               question: str, transcript: str, corrected: str,
+                               grammar: str, pronunciation: str, examples: list,
+                               grammar_score: int, pronunciation_score: int) -> Dict[str, Any]:
+        with self.lock:
+            data = self._read_data()
+            if "practice_sessions" not in data:
+                data["practice_sessions"] = []
+            if "_counters" not in data:
+                data["_counters"] = {}
+            if "practice_sessions" not in data["_counters"]:
+                data["_counters"]["practice_sessions"] = 0
+
+            session_id = self._get_next_id("practice_sessions", data)
+            avg_score = round((grammar_score + pronunciation_score) / 2)
+            xp_earned = max(5, avg_score)  # minimum 5 XP per session
+
+            session = {
+                "id": session_id,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "scenario": scenario,
+                "question": question,
+                "transcript": transcript,
+                "corrected": corrected,
+                "grammar": grammar,
+                "pronunciation": pronunciation,
+                "examples": examples,
+                "grammar_score": grammar_score,
+                "pronunciation_score": pronunciation_score,
+                "avg_score": avg_score,
+                "xp_earned": xp_earned,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            data["practice_sessions"].append(session)
+
+            # Update user XP
+            for user in data["users"]:
+                if user["id"] == user_id:
+                    user["xp"] = user.get("xp", 0) + xp_earned
+                    user["total_sessions"] = user.get("total_sessions", 0) + 1
+                    break
+
+            self._write_data(data)
+            return session
+
+    def get_sessions_by_user(self, user_id: int) -> List[Dict[str, Any]]:
+        data = self._read_data()
+        sessions = [s for s in data.get("practice_sessions", []) if s["user_id"] == user_id]
+        return sorted(sessions, key=lambda x: x["created_at"], reverse=True)
+
+    def get_user_progress(self, user_id: int) -> Dict[str, Any]:
+        data = self._read_data()
+        user = next((u for u in data["users"] if u["id"] == user_id), None)
+        if not user:
+            return {}
+        sessions = [s for s in data.get("practice_sessions", []) if s["user_id"] == user_id]
+        xp = user.get("xp", 0)
+        level_info = get_level(xp)
+        avg_grammar = round(sum(s["grammar_score"] for s in sessions) / len(sessions), 1) if sessions else 0
+        avg_pronunciation = round(sum(s["pronunciation_score"] for s in sessions) / len(sessions), 1) if sessions else 0
+        return {
+            "user_id": user_id,
+            "name": user["name"],
+            "xp": xp,
+            "level": level_info["name"],
+            "next_level": level_info["next_level"],
+            "xp_to_next": level_info["xp_to_next"],
+            "total_sessions": user.get("total_sessions", 0),
+            "avg_grammar_score": avg_grammar,
+            "avg_pronunciation_score": avg_pronunciation,
+            "recent_sessions": sorted(sessions, key=lambda x: x["created_at"], reverse=True)[:10]
+        }
 
 
 # Global database instance
