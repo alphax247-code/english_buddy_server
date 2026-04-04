@@ -456,7 +456,8 @@ class JSONDatabase:
     def save_practice_session(self, user_id: int, conversation_id: int, scenario: str,
                                question: str, transcript: str, corrected: str,
                                grammar: str, pronunciation: str, examples: list,
-                               grammar_score: int, pronunciation_score: int) -> Dict[str, Any]:
+                               grammar_score: int, pronunciation_score: int,
+                               double_xp: bool = False) -> Dict[str, Any]:
         with self.lock:
             data = self._read_data()
             if "practice_sessions" not in data:
@@ -468,7 +469,8 @@ class JSONDatabase:
 
             session_id = self._get_next_id("practice_sessions", data)
             avg_score = round((grammar_score + pronunciation_score) / 2)
-            xp_earned = max(5, avg_score)  # minimum 5 XP per session
+            base_xp = max(5, avg_score)
+            xp_earned = base_xp * 2 if double_xp else base_xp
 
             session = {
                 "id": session_id,
@@ -485,6 +487,7 @@ class JSONDatabase:
                 "pronunciation_score": pronunciation_score,
                 "avg_score": avg_score,
                 "xp_earned": xp_earned,
+                "double_xp": double_xp,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             data["practice_sessions"].append(session)

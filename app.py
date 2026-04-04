@@ -1736,19 +1736,74 @@ def test_database_status():
 from speech_service import transcribe_audio, evaluate_text, CONVERSATIONS
 from fastapi import UploadFile, File
 
+PRACTICE_ACCESS_MONTHS = 3       # free access window after registration
+DOUBLE_XP_USER_LIMIT   = 200     # first N users get double XP
+
+
+def _check_practice_access(user: dict) -> dict:
+    """
+    Returns access info:
+      - allowed: bool
+      - days_remaining: int
+      - double_xp: bool  (first 200 users)
+      - reason: str (human-readable, sent to Flutter)
+    """
+    created_at = user.get("created_at", "")
+    try:
+        registered = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except Exception:
+        registered = datetime.now(timezone.utc)
+
+    expiry = registered + timedelta(days=PRACTICE_ACCESS_MONTHS * 30)
+    now = datetime.now(timezone.utc)
+    allowed = now < expiry
+    days_remaining = max(0, (expiry - now).days)
+
+    # First 200 users by ID get double XP
+    double_xp = user["id"] <= DOUBLE_XP_USER_LIMIT
+
+    return {
+        "allowed": allowed,
+        "days_remaining": days_remaining,
+        "expiry_date": expiry.isoformat(),
+        "double_xp": double_xp,
+        "reason": (
+            f"Early access bonus! Double XP — {days_remaining} days left."
+            if allowed and double_xp else
+            f"Practice available for {days_remaining} more days."
+            if allowed else
+            "Your 3-month free practice access has expired."
+        )
+    }
+
+
 class EvaluateTextPayload(BaseModel):
     text: str
     conversation_id: Optional[int] = None
 
+
+@app.get("/api/practice/access")
+def get_practice_access(user: dict = Depends(get_current_user)):
+    """Let Flutter check access status before showing the practice screen."""
+    return {"ok": True, **_check_practice_access(user)}
+
+
 @app.get("/api/practice/conversations")
 def get_conversations(user: dict = Depends(get_current_user)):
+    access = _check_practice_access(user)
+    if not access["allowed"]:
+        raise HTTPException(status_code=403, detail=access["reason"])
     return {"ok": True, "conversations": CONVERSATIONS}
+
 
 @app.post("/api/practice/transcribe")
 async def transcribe(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user)
 ):
+    access = _check_practice_access(user)
+    if not access["allowed"]:
+        raise HTTPException(status_code=403, detail=access["reason"])
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
     try:
@@ -1758,8 +1813,12 @@ async def transcribe(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/practice/evaluate")
 def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user)):
+    access = _check_practice_access(user)
+    if not access["allowed"]:
+        raise HTTPException(status_code=403, detail=access["reason"])
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
     if not payload.text.strip():
@@ -1780,7 +1839,7 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
             scenario = conv["scenario"]
             question = conv["question"]
 
-    # Save session and update XP
+    # Save session — DB handles base XP; double it here if eligible
     session = db.save_practice_session(
         user_id=user["id"],
         conversation_id=conversation_id,
@@ -1793,6 +1852,7 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
         examples=feedback.get("examples", []),
         grammar_score=feedback.get("grammar_score", 5),
         pronunciation_score=feedback.get("pronunciation_score", 5),
+        double_xp=access["double_xp"],
     )
 
     progress = db.get_user_progress(user["id"])
@@ -1808,6 +1868,12 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
             "pronunciation_score": feedback.get("pronunciation_score", 5),
         },
         "xp_earned": session["xp_earned"],
+        "double_xp": access["double_xp"],
+        "access": {
+            "days_remaining": access["days_remaining"],
+            "expiry_date": access["expiry_date"],
+            "reason": access["reason"],
+        },
         "progress": {
             "xp": progress["xp"],
             "level": progress["level"],
@@ -1817,12 +1883,25 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
         }
     }
 
+
 @app.get("/api/practice/progress")
 def get_progress(user: dict = Depends(get_current_user)):
+    access = _check_practice_access(user)
     progress = db.get_user_progress(user["id"])
     if not progress:
         raise HTTPException(status_code=404, detail="User not found")
-    return {"ok": True, "progress": progress}
+    return {
+        "ok": True,
+        "progress": progress,
+        "access": {
+            "allowed": access["allowed"],
+            "days_remaining": access["days_remaining"],
+            "expiry_date": access["expiry_date"],
+            "double_xp": access["double_xp"],
+            "reason": access["reason"],
+        }
+    }
+
 
 @app.get("/api/practice/history")
 def get_history(user: dict = Depends(get_current_user)):
@@ -1840,6 +1919,7 @@ def get_history(user: dict = Depends(get_current_user)):
                 "grammar_score": s["grammar_score"],
                 "pronunciation_score": s["pronunciation_score"],
                 "xp_earned": s["xp_earned"],
+                "double_xp": s.get("double_xp", False),
                 "created_at": s["created_at"]
             }
             for s in sessions
