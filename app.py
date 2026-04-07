@@ -2020,6 +2020,8 @@ def practice_chat(payload: ChatPayload, user: dict = Depends(get_current_user)):
         "ok": True,
         "reply": result.get("reply", ""),
         "correction": result.get("correction"),
+        "tip": result.get("tip"),
+        "explanation": result.get("explanation"),
         "xp_earned": session["xp_earned"],
         "progress": {
             "xp": progress["xp"],
