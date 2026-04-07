@@ -129,7 +129,7 @@ def chat_reply(history: list) -> dict:
             "model": "gpt-3.5-turbo",
             "messages": [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + history,
             "temperature": 0.7,
-            "max_tokens": 150,
+            "max_tokens": 400,
         },
         timeout=25,
     )
