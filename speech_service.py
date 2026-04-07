@@ -106,6 +106,50 @@ def evaluate_text(user_input: str) -> dict:
         }
 
 
+CHAT_SYSTEM_PROMPT = """You are a friendly English conversation partner helping a Mozambican student practice speaking English.
+
+Rules:
+- Reply in 1-2 short sentences only — keep it natural and conversational
+- Use simple, everyday English
+- Be warm and encouraging
+- Always ask a follow-up question to keep the conversation going
+- If the student made a grammar mistake, include a gentle correction
+
+Return ONLY valid JSON (no markdown):
+{"reply": "your response here", "correction": "corrected version of student sentence, or null if correct"}"""
+
+
+def chat_reply(history: list) -> dict:
+    """Generate a conversational reply with optional grammar correction."""
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not set")
+
+    response = requests.post(
+        f"{OPENAI_API_BASE}/chat/completions",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": "gpt-3.5-turbo",
+            "messages": [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + history,
+            "temperature": 0.7,
+            "max_tokens": 150,
+        },
+        timeout=25,
+    )
+
+    if response.status_code != 200:
+        raise ValueError(f"OpenAI error: {response.text}")
+
+    content = response.json()["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {"reply": content, "correction": None}
+
+
 CONVERSATIONS = [
     {"id": 1, "scenario": "greeting",     "question": "Hello! How are you today?"},
     {"id": 2, "scenario": "food",         "question": "What did you eat today?"},

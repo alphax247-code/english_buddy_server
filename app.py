@@ -1792,7 +1792,7 @@ def test_database_status():
 # SPEECH PRACTICE
 # =====================================================
 
-from speech_service import transcribe_audio, evaluate_text, CONVERSATIONS
+from speech_service import transcribe_audio, evaluate_text, chat_reply, CONVERSATIONS
 from fastapi import UploadFile, File
 
 PRACTICE_BASE_DAYS    = 90    # standard access: 3 months
@@ -1818,32 +1818,32 @@ def _check_practice_access(user: dict) -> dict:
     base_days = EARLY_USER_DAYS if is_early_user else PRACTICE_BASE_DAYS
     expiry = registered + timedelta(days=base_days)
 
-    # Check active promotions — pick the one with the furthest expiry
+    # Check active promotions — if ANY promo is active, ALL users get access for its duration
     promos = db.get_active_promotions()
-    promo_bonus_days = 0
     active_promo = None
+    promo_end_date = None
     for promo in promos:
         try:
-            promo_end = datetime.fromisoformat(promo["end_date"].replace("Z", "+00:00"))
-            if now <= promo_end:
-                if promo.get("extra_days", 0) > promo_bonus_days:
-                    promo_bonus_days = promo["extra_days"]
-                    active_promo = promo
+            end = datetime.fromisoformat(promo["end_date"].replace("Z", "+00:00"))
+            if promo_end_date is None or end > promo_end_date:
+                promo_end_date = end
+                active_promo = promo
         except Exception:
             continue
 
-    if promo_bonus_days:
-        expiry = expiry + timedelta(days=promo_bonus_days)
+    # Active promo overrides expiry for ALL users — everyone gets access until promo ends
+    if active_promo and promo_end_date:
+        expiry = max(expiry, promo_end_date)
 
     allowed = now < expiry
     days_remaining = max(0, (expiry - now).days)
 
-    if allowed and is_early_user and active_promo:
+    if active_promo and is_early_user:
         reason = f"Early user + promo '{active_promo['name']}' — {days_remaining} days left."
+    elif active_promo:
+        reason = f"Promo '{active_promo['name']}' active — {days_remaining} days left."
     elif allowed and is_early_user:
         reason = f"Early user bonus: {days_remaining} days of practice remaining."
-    elif allowed and active_promo:
-        reason = f"Promo '{active_promo['name']}' active — {days_remaining} days left."
     elif allowed:
         reason = f"Practice available for {days_remaining} more days."
     else:
@@ -1862,6 +1862,11 @@ def _check_practice_access(user: dict) -> dict:
 class EvaluateTextPayload(BaseModel):
     text: str
     conversation_id: Optional[int] = None
+
+class ChatPayload(BaseModel):
+    message: str
+    conversation_id: Optional[int] = None
+    history: list = []   # [{"role": "user"/"assistant", "content": "..."}]
 
 
 @app.get("/api/practice/access")
@@ -1964,6 +1969,64 @@ def evaluate(payload: EvaluateTextPayload, user: dict = Depends(get_current_user
             "xp_to_next": progress["xp_to_next"],
             "total_sessions": progress["total_sessions"],
         }
+    }
+
+
+@app.post("/api/practice/chat")
+def practice_chat(payload: ChatPayload, user: dict = Depends(get_current_user)):
+    """Conversational AI practice — GPT replies and gently corrects."""
+    access = _check_practice_access(user)
+    if not access["allowed"]:
+        raise HTTPException(status_code=403, detail=access["reason"])
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    # Keep last 10 turns for context, append current user message
+    history = list(payload.history[-10:])
+    history.append({"role": "user", "content": payload.message})
+
+    try:
+        result = chat_reply(history)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    conversation_id = payload.conversation_id or 0
+    scenario, question = "", ""
+    if conversation_id:
+        conv = next((c for c in CONVERSATIONS if c["id"] == conversation_id), None)
+        if conv:
+            scenario = conv["scenario"]
+            question = conv["question"]
+
+    session = db.save_practice_session(
+        user_id=user["id"],
+        conversation_id=conversation_id,
+        scenario=scenario,
+        question=question,
+        transcript=payload.message,
+        corrected=result.get("correction") or payload.message,
+        grammar="",
+        pronunciation="",
+        examples=[],
+        grammar_score=7,
+        pronunciation_score=7,
+        double_xp=False,
+    )
+
+    progress = db.get_user_progress(user["id"])
+    return {
+        "ok": True,
+        "reply": result.get("reply", ""),
+        "correction": result.get("correction"),
+        "xp_earned": session["xp_earned"],
+        "progress": {
+            "xp": progress["xp"],
+            "level": progress["level"],
+            "xp_to_next": progress["xp_to_next"],
+            "total_sessions": progress["total_sessions"],
+        },
     }
 
 
