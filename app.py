@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException, Header
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from json_db import db
 from payout_service import payout_service
@@ -1866,7 +1866,7 @@ class EvaluateTextPayload(BaseModel):
 class ChatPayload(BaseModel):
     message: str
     conversation_id: Optional[int] = None
-    history: list = []   # [{"role": "user"/"assistant", "content": "..."}]
+    history: list = Field(default_factory=list)
 
 
 @app.get("/api/practice/access")
