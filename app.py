@@ -1792,7 +1792,7 @@ def test_database_status():
 # SPEECH PRACTICE
 # =====================================================
 
-from speech_service import transcribe_audio, evaluate_text, chat_reply, CONVERSATIONS
+from speech_service import transcribe_audio, evaluate_text, chat_reply, CONVERSATIONS, get_random_topic, analyze_session
 from fastapi import UploadFile, File
 
 PRACTICE_BASE_DAYS    = 90    # standard access: 3 months
@@ -2029,6 +2029,49 @@ def practice_chat(payload: ChatPayload, user: dict = Depends(get_current_user)):
             "xp_to_next": progress["xp_to_next"],
             "total_sessions": progress["total_sessions"],
         },
+    }
+
+
+@app.get("/api/practice/topic")
+def get_topic(user: dict = Depends(get_current_user)):
+    """Return a random topic matched to the user's current level."""
+    _check_practice_access(user)
+    progress = db.get_user_progress(user["id"])
+    level = progress["level"] if progress else 1
+    topic = get_random_topic(level)
+    return {"ok": True, "topic": topic, "level": level}
+
+
+class AnalyzePayload(BaseModel):
+    history: list = Field(default_factory=list)
+
+
+@app.post("/api/practice/analyze")
+def analyze_practice(payload: AnalyzePayload, user: dict = Depends(get_current_user)):
+    """Analyze a completed 2-minute session and return score + feedback."""
+    _check_practice_access(user)
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+    if not payload.history:
+        raise HTTPException(status_code=400, detail="History is empty")
+    try:
+        result = analyze_session(payload.history)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    progress = db.get_user_progress(user["id"])
+    return {
+        "ok": True,
+        "score": result.get("score", 5),
+        "strengths": result.get("strengths", []),
+        "improvements": result.get("improvements", []),
+        "tip": result.get("tip", ""),
+        "tip_pt": result.get("tip_pt", ""),
+        "progress": {
+            "xp": progress["xp"],
+            "level": progress["level"],
+            "xp_to_next": progress["xp_to_next"],
+            "total_sessions": progress["total_sessions"],
+        } if progress else {},
     }
 
 
