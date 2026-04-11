@@ -197,9 +197,16 @@ Analyse only the student (user) messages. Return ONLY this JSON (no markdown):
   "strengths": ["short phrase about what was good", "another strength"],
   "improvements": ["one specific thing to work on", "another improvement"],
   "tip": "One key grammar or vocabulary tip in English",
-  "tip_pt": "The same tip in simple Mozambican Portuguese, encouraging tone"
+  "tip_pt": "The same tip in simple Mozambican Portuguese, encouraging tone",
+  "turn_feedback": [
+    {
+      "turn": 1,
+      "correction": "full corrected version of what they said, or null if no errors",
+      "suggestion": "a richer, more natural English alternative they could try next time — a complete sentence"
+    }
+  ]
 }
-Score 1-10 based on grammar accuracy, vocabulary range, and sentence complexity. Be honest but kind."""
+turn_feedback must have one entry per user message, in order. Score 1-10 based on grammar, vocabulary range, and sentence complexity. Be honest but kind."""
 
 
 def analyze_session(history: list) -> dict:
@@ -220,7 +227,7 @@ def analyze_session(history: list) -> dict:
                 {"role": "user", "content": json.dumps(history, ensure_ascii=False)},
             ],
             "temperature": 0.3,
-            "max_tokens": 350,
+            "max_tokens": 700,
         },
         timeout=30,
     )

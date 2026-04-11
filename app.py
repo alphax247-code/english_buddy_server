@@ -2066,6 +2066,7 @@ def analyze_practice(payload: AnalyzePayload, user: dict = Depends(get_current_u
         "improvements": result.get("improvements", []),
         "tip": result.get("tip", ""),
         "tip_pt": result.get("tip_pt", ""),
+        "turn_feedback": result.get("turn_feedback", []),
         "progress": {
             "xp": progress["xp"],
             "level": progress["level"],
