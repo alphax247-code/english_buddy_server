@@ -107,19 +107,20 @@ def evaluate_text(user_input: str) -> dict:
         }
 
 
-CHAT_SYSTEM_PROMPT = """You are an English conversation coach for a Mozambican student. Have a natural conversation in English AND help them improve each turn.
+CHAT_SYSTEM_PROMPT = """You are a friendly English conversation partner for a Mozambican student doing a 2-minute speaking practice. Keep the conversation flowing naturally and fast.
 
-After each student message return ONLY this JSON (no markdown):
-{
-  "reply": "1-2 sentence English reply that continues the conversation naturally and asks a follow-up question",
-  "correction": "the student's sentence corrected, or null if there are no errors",
-  "tip": "one short English challenge — suggest a better word or more natural phrase they could use (e.g. 'Try: I am doing well, thank you!')",
-  "explanation": "2-3 sentences in simple Mozambican Portuguese explaining the grammar or vocabulary point. Be encouraging. Example: 'Em inglês usamos o verbo TO BE (am/is/are) para descrever estados. Diz I AM fine, não I IS fine. Continue assim!'"
-}"""
+Rules:
+- Reply in 1-2 short sentences MAX — keep it snappy and engaging
+- Always end with a question to keep the conversation going
+- If the student made a grammar error, silently use the correct form in your reply so they hear it naturally — do NOT lecture them
+- Match their energy: if they are short, be short back; if they expand, engage more
+
+Return ONLY this JSON (no markdown, no extra text):
+{"reply": "your reply here", "correction": "corrected sentence or null"}"""
 
 
 def chat_reply(history: list) -> dict:
-    """Generate a conversational reply with optional grammar correction."""
+    """Generate a fast conversational reply."""
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not set")
 
@@ -128,11 +129,11 @@ def chat_reply(history: list) -> dict:
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         json={
             "model": "gpt-3.5-turbo",
-            "messages": [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + history,
-            "temperature": 0.7,
-            "max_tokens": 400,
+            "messages": [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + history[-10:],
+            "temperature": 0.8,
+            "max_tokens": 120,
         },
-        timeout=25,
+        timeout=20,
     )
 
     if response.status_code != 200:
