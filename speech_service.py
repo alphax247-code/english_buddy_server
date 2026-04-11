@@ -190,23 +190,30 @@ def get_random_topic(level: int) -> dict:
 
 
 # ── Session analysis ──────────────────────────────────────────────────────────
-_ANALYSIS_PROMPT = """You are an English coach reviewing a 2-minute spoken practice session by a Mozambican student.
-Analyse only the student (user) messages. Return ONLY this JSON (no markdown):
+_ANALYSIS_PROMPT = """You are an English teacher reviewing a 2-minute spoken practice session by a Mozambican student. Go through every single student message and give detailed feedback.
+
+Return ONLY this JSON (no markdown):
 {
   "score": 7,
-  "strengths": ["short phrase about what was good", "another strength"],
-  "improvements": ["one specific thing to work on", "another improvement"],
-  "tip": "One key grammar or vocabulary tip in English",
-  "tip_pt": "The same tip in simple Mozambican Portuguese, encouraging tone",
+  "strengths": ["one specific thing they did well", "another strength"],
+  "improvements": ["one area to work on", "another"],
+  "tip": "The single most important grammar or vocabulary tip from this session, in English",
+  "tip_pt": "The same tip in simple Mozambican Portuguese, warm and encouraging",
   "turn_feedback": [
     {
       "turn": 1,
-      "correction": "full corrected version of what they said, or null if no errors",
-      "suggestion": "a richer, more natural English alternative they could try next time — a complete sentence"
+      "original": "exactly what the student said",
+      "correction": "the fully corrected sentence, or null if perfect",
+      "error_type": "short label e.g. 'Verb tense', 'Missing article', 'Word order', or null",
+      "explanation": "1-2 sentences in simple Mozambican Portuguese explaining what was wrong and why — warm teacher tone",
+      "suggestion": "a richer, more natural English version they could try — a complete sentence that expands on what they said"
     }
   ]
 }
-turn_feedback must have one entry per user message, in order. Score 1-10 based on grammar, vocabulary range, and sentence complexity. Be honest but kind."""
+Rules:
+- turn_feedback must have exactly one entry per student (user) message, in order
+- If the sentence had no errors, set correction and error_type and explanation to null but still provide a suggestion to help them say more
+- Score 1-10: grammar accuracy + vocabulary range + sentence complexity. Be honest but kind."""
 
 
 def analyze_session(history: list) -> dict:
@@ -227,7 +234,7 @@ def analyze_session(history: list) -> dict:
                 {"role": "user", "content": json.dumps(history, ensure_ascii=False)},
             ],
             "temperature": 0.3,
-            "max_tokens": 700,
+            "max_tokens": 1200,
         },
         timeout=30,
     )
