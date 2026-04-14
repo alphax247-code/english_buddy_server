@@ -195,6 +195,7 @@
               <option value="pending">Pending</option>
               <option value="success">Success</option>
               <option value="failed">Failed</option>
+              <option value="rejected">Rejected</option>
             </select>
             <button class="btn btn-primary btn-sm" id="sync-all-btn" onclick="syncAllPending()">↻ Sync Pending</button>
             <button class="btn btn-danger btn-sm" onclick="clearPending()">🗑 Clear Pending</button>
@@ -1054,27 +1055,33 @@
         return;
       }
 
-      const rows = payments.map(p => `
+      const rows = payments.map(p => {
+        const statusColor = p.status === 'success' ? 'success' : p.status === 'pending' ? 'warning' : p.status === 'rejected' ? 'danger' : 'danger';
+        const isPending = p.status === 'pending';
+        const ref = p.reference.replace(/'/g, "\\'");
+        return `
         <tr>
           <td><code>${p.reference}</code></td>
           <td>${p.name}</td>
-          <td>${p.mobile}</td>
+          <td><strong>${p.mobile}</strong></td>
           <td>
             ${formatAmount(p.amount)}
-            <button class="btn btn-sm" style="margin-left:.25rem;padding:.15rem .4rem;font-size:.7rem;" onclick="editPaymentAmount('${p.reference}', ${p.amount})">✏️</button>
+            <button class="btn btn-sm" style="margin-left:.25rem;padding:.15rem .4rem;font-size:.7rem;" onclick="editPaymentAmount('${ref}', ${p.amount})">✏️</button>
           </td>
           <td>${p.method || '-'}</td>
-          <td><span class="badge badge-${p.status === 'success' ? 'success' : p.status === 'pending' ? 'warning' : 'danger'}">${p.status}</span></td>
+          <td><span class="badge badge-${statusColor}">${p.status}</span></td>
           <td>${p.affiliate_code ? `<code>${p.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
           <td>${formatDate(p.created_at)}</td>
           <td>
-            <div class="flex" style="gap:.25rem;">
-              ${(p.status === 'pending' || p.status === 'failed') ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${p.reference}')">↻ Sync</button>` : ''}
-              ${p.status !== 'success' ? `<button class="btn btn-success btn-sm" onclick="completePayment('${p.reference}')">✓ Complete</button>` : ''}
+            <div class="flex" style="gap:.25rem;flex-wrap:wrap;">
+              ${isPending ? `<button class="btn btn-success btn-sm" onclick="confirmPayment('${ref}')">✓ Confirm</button>` : ''}
+              ${isPending ? `<button class="btn btn-danger btn-sm" onclick="denyPayment('${ref}')">✗ Deny</button>` : ''}
+              ${(p.status === 'pending' || p.status === 'failed') ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${ref}')">↻ Sync</button>` : ''}
+              <button class="btn btn-sm" style="background:#6b7280;color:#fff;" onclick="deletePayment('${ref}')">🗑</button>
             </div>
           </td>
-        </tr>
-      `).join('');
+        </tr>`;
+      }).join('');
 
       document.getElementById('payments-table').innerHTML = `
         <table>
@@ -1171,16 +1178,40 @@
       }
     }
 
-    async function completePayment(reference) {
-      if (!confirm(`Manually mark payment "${reference}" as complete and activate the user?`)) return;
+    async function confirmPayment(reference) {
+      if (!confirm(`Confirm payment "${reference}"?\nThis will mark it as successful and activate the user's account.`)) return;
       try {
         const res = await API.post(`/api/admin/payments/${encodeURIComponent(reference)}/complete`);
-        showAlert('alert-box', res.message || 'Payment completed and user activated.', 'success');
+        showAlert('alert-box', res.message || 'Payment confirmed — user activated.', 'success');
         loadPayments();
         loadUsers();
         loadStats();
       } catch (e) {
-        showAlert('alert-box', e.detail || 'Failed to complete payment.');
+        showAlert('alert-box', e.detail || 'Failed to confirm payment.');
+      }
+    }
+
+    async function denyPayment(reference) {
+      if (!confirm(`Deny payment "${reference}"?\nThis marks it as rejected. The user will NOT be activated.`)) return;
+      try {
+        await API.post(`/api/admin/payments/${encodeURIComponent(reference)}/reject`);
+        showAlert('alert-box', `Payment "${reference}" rejected.`, 'warning');
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to reject payment.');
+      }
+    }
+
+    async function deletePayment(reference) {
+      if (!confirm(`Permanently delete payment "${reference}"? This cannot be undone.`)) return;
+      try {
+        await API.delete(`/api/admin/payments/${encodeURIComponent(reference)}`);
+        showAlert('alert-box', `Payment "${reference}" deleted.`, 'success');
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to delete payment.');
       }
     }
 

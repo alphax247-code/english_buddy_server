@@ -990,6 +990,26 @@ def clear_pending_payments(admin: dict = Depends(get_admin_user)):
     return {"ok": True, "deleted": deleted, "message": f"Removed {deleted} pending payment(s)"}
 
 
+@app.post("/api/admin/payments/{reference}/reject")
+def reject_payment(reference: str, admin: dict = Depends(get_admin_user)):
+    """Mark a payment as rejected (denied by admin)."""
+    payment = db.get_payment_by_reference(reference)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    updated = db.update_payment(reference, status="rejected")
+    return {"ok": True, "message": "Payment rejected.", "payment": updated}
+
+
+@app.delete("/api/admin/payments/{reference}")
+def delete_payment(reference: str, admin: dict = Depends(get_admin_user)):
+    """Permanently delete a single payment record."""
+    payment = db.get_payment_by_reference(reference)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    db.delete_payment_by_reference(reference)
+    return {"ok": True, "message": f"Payment {reference} deleted."}
+
+
 @app.post("/api/admin/import-by-paysuite-id/{paysuite_id}")
 def import_by_paysuite_id(paysuite_id: str, admin: dict = Depends(get_admin_user)):
     """Look up a payment directly by Paysuite's internal ID and import it into the DB."""

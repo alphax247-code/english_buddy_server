@@ -270,6 +270,16 @@ class JSONDatabase:
                     return payment
             return None
 
+    def delete_payment_by_reference(self, reference: str) -> bool:
+        with self.lock:
+            data = self._read_data()
+            before = len(data["payments"])
+            data["payments"] = [p for p in data["payments"] if p["reference"] != reference]
+            if len(data["payments"]) < before:
+                self._write_data(data)
+                return True
+            return False
+
     def delete_payments_by_status(self, status: str) -> int:
         with self.lock:
             data = self._read_data()
