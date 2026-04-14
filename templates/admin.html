@@ -134,14 +134,52 @@
 
     <!-- USERS TAB -->
     <div id="tab-users" style="display:none;">
-      <div class="card">
-        <h2>User Management</h2>
 
-        <!-- Search -->
+      <!-- Manual Registration -->
+      <div class="card">
+        <h2>Manual Registration</h2>
+        <p class="text-muted" style="margin-bottom:1rem;">Register a user directly without requiring payment flow.</p>
+        <div id="manual-reg-alert"></div>
+        <div class="flex" style="gap:1rem;flex-wrap:wrap;">
+          <div class="form-group" style="flex:1;min-width:160px;">
+            <label>Full Name</label>
+            <input type="text" id="mreg-name" placeholder="e.g. João Silva" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:160px;">
+            <label>Mobile Number</label>
+            <input type="text" id="mreg-mobile" placeholder="e.g. 841234567" />
+          </div>
+          <div class="form-group" style="min-width:130px;">
+            <label>Role</label>
+            <select id="mreg-role">
+              <option value="student">Student</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label>Extra Days</label>
+            <input type="number" id="mreg-extra-days" placeholder="0" min="0" max="3650" value="0" />
+          </div>
+          <div class="form-group" style="min-width:160px;">
+            <label>Affiliate Code (optional)</label>
+            <input type="text" id="mreg-affiliate" placeholder="e.g. ABC123" />
+          </div>
+          <div class="form-group" style="min-width:120px;padding-top:1.5rem;">
+            <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;">
+              <input type="checkbox" id="mreg-is-paid" checked style="width:16px;height:16px;" />
+              Mark as Paid
+            </label>
+          </div>
+        </div>
+        <button class="btn btn-success" onclick="manualRegister()">➕ Register User</button>
+      </div>
+
+      <!-- User List -->
+      <div class="card">
+        <h2>All Users</h2>
         <div class="search-box">
           <input type="text" id="user-search" placeholder="Search users by name or mobile..." oninput="filterUsers()" />
         </div>
-
         <div id="users-table"><div class="spinner"></div></div>
       </div>
     </div>
@@ -856,6 +894,10 @@
           <td><span class="badge badge-${u.is_banned ? 'danger' : u.is_active ? 'success' : 'warning'}">${u.is_banned ? 'Banned' : u.is_active ? 'Active' : 'Inactive'}</span></td>
           <td><span class="badge">${u.role || 'student'}</span></td>
           <td>${u.affiliate_code ? `<code>${u.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
+          <td style="white-space:nowrap;">
+            <span style="font-size:.8rem;">${u.extra_days > 0 ? `+${u.extra_days}d bonus` : '—'}</span>
+            <button class="btn btn-sm" style="margin-left:.25rem;padding:.15rem .4rem;font-size:.7rem;" onclick="editExtraDays(${u.id}, ${u.extra_days || 0}, '${u.name}')">✏️</button>
+          </td>
           <td>${formatDate(u.created_at)}</td>
           <td>
             <div class="flex" style="gap:.25rem;">
@@ -882,6 +924,7 @@
               <th>Status</th>
               <th>Role</th>
               <th>Affiliate</th>
+              <th>Extra Days</th>
               <th>Joined</th>
               <th>Actions</th>
             </tr>
@@ -933,6 +976,46 @@
       }
     }
 
+    async function manualRegister() {
+      const name = document.getElementById('mreg-name').value.trim();
+      const mobile = document.getElementById('mreg-mobile').value.trim();
+      const role = document.getElementById('mreg-role').value;
+      const extraDays = parseInt(document.getElementById('mreg-extra-days').value) || 0;
+      const affiliate = document.getElementById('mreg-affiliate').value.trim();
+      const isPaid = document.getElementById('mreg-is-paid').checked;
+      if (!name || !mobile) { showAlert('manual-reg-alert', 'Name and mobile are required.'); return; }
+      try {
+        const res = await API.post('/api/admin/users/register', {
+          name, mobile, role, is_paid: isPaid,
+          extra_days: extraDays,
+          affiliate_code: affiliate || null,
+        });
+        showAlert('manual-reg-alert', `User "${res.user.name}" registered successfully (ID ${res.user.id}).`, 'success');
+        document.getElementById('mreg-name').value = '';
+        document.getElementById('mreg-mobile').value = '';
+        document.getElementById('mreg-extra-days').value = '0';
+        document.getElementById('mreg-affiliate').value = '';
+        loadUsers();
+        loadStats();
+      } catch (e) {
+        showAlert('manual-reg-alert', e.detail || 'Registration failed.');
+      }
+    }
+
+    async function editExtraDays(userId, current, name) {
+      const input = prompt(`Extra bonus access days for "${name}" (current: ${current}):\nThis adds on top of their standard 90/180-day access.`, current);
+      if (input === null) return;
+      const days = parseInt(input);
+      if (isNaN(days) || days < 0) { alert('Please enter a valid number of days (0 or more).'); return; }
+      try {
+        await API.put(`/api/admin/users/${userId}`, { extra_days: days });
+        showAlert('alert-box', `Extra days updated to ${days} for "${name}".`, 'success');
+        loadUsers();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to update extra days.');
+      }
+    }
+
     // ===== PAYMENTS =====
     async function loadPayments() {
       try {
@@ -976,12 +1059,20 @@
           <td><code>${p.reference}</code></td>
           <td>${p.name}</td>
           <td>${p.mobile}</td>
-          <td>${formatAmount(p.amount)}</td>
+          <td>
+            ${formatAmount(p.amount)}
+            <button class="btn btn-sm" style="margin-left:.25rem;padding:.15rem .4rem;font-size:.7rem;" onclick="editPaymentAmount('${p.reference}', ${p.amount})">✏️</button>
+          </td>
           <td>${p.method || '-'}</td>
           <td><span class="badge badge-${p.status === 'success' ? 'success' : p.status === 'pending' ? 'warning' : 'danger'}">${p.status}</span></td>
           <td>${p.affiliate_code ? `<code>${p.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
           <td>${formatDate(p.created_at)}</td>
-          <td>${(p.status === 'pending' || p.status === 'failed') ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${p.reference}')">↻ Sync</button>` : '-'}</td>
+          <td>
+            <div class="flex" style="gap:.25rem;">
+              ${(p.status === 'pending' || p.status === 'failed') ? `<button class="btn btn-primary btn-sm" onclick="syncPayment('${p.reference}')">↻ Sync</button>` : ''}
+              ${p.status !== 'success' ? `<button class="btn btn-success btn-sm" onclick="completePayment('${p.reference}')">✓ Complete</button>` : ''}
+            </div>
+          </td>
         </tr>
       `).join('');
 
@@ -1063,6 +1154,34 @@
           }
         }
       });
+    }
+
+    async function editPaymentAmount(reference, current) {
+      const input = prompt(`New amount (MZN) for payment ${reference}:`, current);
+      if (input === null) return;
+      const amount = parseInt(input);
+      if (isNaN(amount) || amount < 1) { alert('Please enter a valid amount (at least 1).'); return; }
+      try {
+        await API.put(`/api/admin/payments/${encodeURIComponent(reference)}/amount`, { amount });
+        showAlert('alert-box', `Amount updated to ${formatAmount(amount)} MZN.`, 'success');
+        loadPayments();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to update amount.');
+      }
+    }
+
+    async function completePayment(reference) {
+      if (!confirm(`Manually mark payment "${reference}" as complete and activate the user?`)) return;
+      try {
+        const res = await API.post(`/api/admin/payments/${encodeURIComponent(reference)}/complete`);
+        showAlert('alert-box', res.message || 'Payment completed and user activated.', 'success');
+        loadPayments();
+        loadUsers();
+        loadStats();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to complete payment.');
+      }
     }
 
     async function syncPayment(reference) {

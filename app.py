@@ -1731,6 +1731,53 @@ def get_users():
 class UpdateUserPayload(BaseModel):
     role: Optional[str] = None
     is_banned: Optional[bool] = None
+    extra_days: Optional[int] = None   # extra access days granted by admin
+
+
+class ManualRegisterPayload(BaseModel):
+    name: str
+    mobile: str
+    is_paid: bool = True
+    role: str = "student"
+    affiliate_code: Optional[str] = None
+    extra_days: int = 0
+
+
+class UpdatePaymentAmountPayload(BaseModel):
+    amount: int
+
+
+@app.post("/api/admin/users/register")
+def admin_manual_register(payload: ManualRegisterPayload, admin: dict = Depends(get_admin_user)):
+    mobile = process_mobile_number(payload.mobile)
+    if not mobile:
+        raise HTTPException(status_code=400, detail="Invalid mobile number")
+    existing = db.get_user_by_mobile(mobile)
+    if existing:
+        raise HTTPException(status_code=409, detail="A user with this mobile already exists")
+    user = db.create_user(
+        name=payload.name.strip(),
+        mobile=mobile,
+        is_paid=payload.is_paid,
+        role=payload.role,
+        affiliate_code=payload.affiliate_code or None,
+    )
+    if payload.extra_days > 0:
+        db.update_user(user["id"], extra_days=payload.extra_days)
+        user = db.get_user_by_id(user["id"])
+    return {"ok": True, "user": user}
+
+
+@app.put("/api/admin/payments/{reference}/amount")
+def admin_update_payment_amount(reference: str, payload: UpdatePaymentAmountPayload,
+                                admin: dict = Depends(get_admin_user)):
+    if payload.amount < 1:
+        raise HTTPException(status_code=400, detail="Amount must be at least 1")
+    payment = db.get_payment_by_reference(reference)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    updated = db.update_payment(reference, amount=payload.amount)
+    return {"ok": True, "payment": updated}
 
 
 @app.put("/api/admin/users/{user_id}")
@@ -1747,6 +1794,10 @@ def admin_update_user(user_id: int, payload: UpdateUserPayload, admin: dict = De
     if payload.is_banned is not None:
         updates["is_banned"] = payload.is_banned
         updates["is_active"] = not payload.is_banned
+    if payload.extra_days is not None:
+        if payload.extra_days < 0:
+            raise HTTPException(status_code=400, detail="extra_days cannot be negative")
+        updates["extra_days"] = payload.extra_days
 
     updated = db.update_user(user_id, **updates)
     return {"ok": True, "user": updated}
@@ -1830,6 +1881,7 @@ def _check_practice_access(user: dict) -> dict:
 
     is_early_user = user["id"] <= EARLY_USER_LIMIT
     base_days = EARLY_USER_DAYS if is_early_user else PRACTICE_BASE_DAYS
+    base_days += int(user.get("extra_days") or 0)   # admin-granted bonus days
     expiry = registered + timedelta(days=base_days)
 
     # Check active promotions — if ANY promo is active, ALL users get access for its duration
