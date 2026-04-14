@@ -1,48 +1,31 @@
 """
-Database Manager
-Uses PostgreSQL when DATABASE_URL is set (production), falls back to JSON file (local dev).
+Database layer — backed by SQLAlchemy (PostgreSQL in production, SQLite locally).
+Keeps the same public API as the old JSON-file version so app.py needs no changes.
 """
-import json
-import os
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
-from threading import Lock
 
-try:
-    import psycopg2
-    import psycopg2.extras
-    HAS_PSYCOPG2 = True
-except ImportError:
-    HAS_PSYCOPG2 = False
+from models import Base, User, Payment, Affiliate, Payout, PracticeSession, Promotion
+from database import SessionLocal, engine
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-DATABASE_FILE = os.path.join(os.path.dirname(__file__), "database.json")
+# ── XP / Level helpers (unchanged) ──────────────────────────────────────────
 
-EMPTY_DB = {
-    "users": [],
-    "payments": [],
-    "affiliates": [],
-    "payouts": [],
-    "practice_sessions": [],
-    "promotions": [],
-    "_counters": {"users": 0, "payments": 0, "affiliates": 0, "payouts": 0, "practice_sessions": 0, "promotions": 0}
-}
-
-# XP thresholds and levels
 LEVELS = [
-    {"name": "Beginner",     "min_xp": 0},
-    {"name": "Elementary",   "min_xp": 100},
-    {"name": "Pre-intermediate", "min_xp": 300},
-    {"name": "Intermediate", "min_xp": 600},
-    {"name": "Upper-intermediate", "min_xp": 1000},
-    {"name": "Advanced",     "min_xp": 1500},
+    {"name": "Beginner",             "min_xp": 0},
+    {"name": "Elementary",           "min_xp": 100},
+    {"name": "Pre-intermediate",     "min_xp": 300},
+    {"name": "Intermediate",         "min_xp": 600},
+    {"name": "Upper-intermediate",   "min_xp": 1000},
+    {"name": "Advanced",             "min_xp": 1500},
 ]
+
 
 def get_level(xp: int) -> dict:
     level = LEVELS[0]
-    for l in LEVELS:
-        if xp >= l["min_xp"]:
-            level = l
+    for lvl in LEVELS:
+        if xp >= lvl["min_xp"]:
+            level = lvl
     idx = LEVELS.index(level)
     next_level = LEVELS[idx + 1] if idx + 1 < len(LEVELS) else None
     return {
@@ -53,402 +36,260 @@ def get_level(xp: int) -> dict:
     }
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ── Database class ────────────────────────────────────────────────────────────
+
 class JSONDatabase:
-    """Thread-safe database — PostgreSQL in production, JSON file locally."""
+    """SQLAlchemy-backed database. Tables are created/migrated by Alembic."""
 
     def __init__(self):
-        self.lock = Lock()
-        self._use_postgres = bool(DATABASE_URL and HAS_PSYCOPG2)
-        if self._use_postgres:
-            self._init_postgres()
-        else:
-            self._ensure_file_exists()
+        # Safety net: create any missing tables (Alembic handles migrations).
+        Base.metadata.create_all(engine, checkfirst=True)
 
-    # =========================================================
-    # POSTGRES BACKEND
-    # =========================================================
-
-    def _get_conn(self):
-        url = DATABASE_URL
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
-        return psycopg2.connect(url, sslmode="require")
-
-    def _init_postgres(self):
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS app_data (
-                        id INTEGER PRIMARY KEY,
-                        data JSONB NOT NULL
-                    )
-                """)
-                cur.execute("""
-                    INSERT INTO app_data (id, data)
-                    VALUES (1, %s)
-                    ON CONFLICT (id) DO NOTHING
-                """, (json.dumps(EMPTY_DB),))
-            conn.commit()
-
-    # =========================================================
-    # JSON FILE BACKEND
-    # =========================================================
-
-    def _ensure_file_exists(self):
-        if not os.path.exists(DATABASE_FILE):
-            self._write_data(EMPTY_DB)
-
-    # =========================================================
-    # CORE READ / WRITE  (switches between backends)
-    # =========================================================
-
-    def _read_data(self) -> Dict[str, Any]:
-        if self._use_postgres:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT data FROM app_data WHERE id = 1")
-                    row = cur.fetchone()
-                    data = row[0] if row else dict(EMPTY_DB)
-            # Ensure _counters exists
-            if "_counters" not in data:
-                data["_counters"] = {"users": 0, "payments": 0, "affiliates": 0, "payouts": 0}
-            return data
-        else:
-            with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-
-    def _write_data(self, data: Dict[str, Any]):
-        if self._use_postgres:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE app_data SET data = %s WHERE id = 1",
-                        (json.dumps(data, default=str),)
-                    )
-                conn.commit()
-        else:
-            with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-    def _get_next_id(self, table: str, data: Dict[str, Any]) -> int:
-        if "_counters" not in data:
-            data["_counters"] = {}
-        if table not in data["_counters"]:
-            # Derive from existing records
-            existing = data.get(table, [])
-            data["_counters"][table] = max((r["id"] for r in existing), default=0)
-        data["_counters"][table] += 1
-        return data["_counters"][table]
-
-    # =========================================================
-    # MIGRATION — load a JSON snapshot into postgres
-    # =========================================================
-
-    def load_snapshot(self, snapshot: Dict[str, Any]):
-        """Overwrite the database with a full JSON snapshot (used for migration)."""
-        with self.lock:
-            if "_counters" not in snapshot:
-                snapshot["_counters"] = {
-                    "users": max((u["id"] for u in snapshot.get("users", [])), default=0),
-                    "payments": max((p["id"] for p in snapshot.get("payments", [])), default=0),
-                    "affiliates": max((a["id"] for a in snapshot.get("affiliates", [])), default=0),
-                    "payouts": max((p["id"] for p in snapshot.get("payouts", [])), default=0),
-                }
-            self._write_data(snapshot)
+    @contextmanager
+    def _session(self):
+        session = SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     # =====================================================
     # USER OPERATIONS
     # =====================================================
 
     def create_user(self, name: str, mobile: str, is_paid: bool = False,
-                   role: str = "student", affiliate_code: Optional[str] = None) -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            for user in data["users"]:
-                if user["mobile"] == mobile:
-                    raise ValueError("User with this mobile already exists")
-            user_id = self._get_next_id("users", data)
-            user = {
-                "id": user_id,
-                "name": name,
-                "mobile": mobile,
-                "role": role,
-                "is_paid": is_paid,
-                "is_active": True,
-                "is_banned": False,
-                "affiliate_code": affiliate_code,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            data["users"].append(user)
-            self._write_data(data)
-            return user
+                    role: str = "student", affiliate_code: Optional[str] = None) -> Dict[str, Any]:
+        with self._session() as s:
+            if s.query(User).filter_by(mobile=mobile).first():
+                raise ValueError("User with this mobile already exists")
+            user = User(
+                name=name, mobile=mobile, is_paid=is_paid,
+                role=role, affiliate_code=affiliate_code, created_at=_now()
+            )
+            s.add(user)
+            s.flush()
+            return user.to_dict()
 
     def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
-        data = self._read_data()
-        for user in data["users"]:
-            if user["id"] == user_id:
-                return user
-        return None
+        with self._session() as s:
+            u = s.get(User, user_id)
+            return u.to_dict() if u else None
 
     def get_user_by_mobile(self, mobile: str) -> Optional[Dict[str, Any]]:
-        data = self._read_data()
-        for user in data["users"]:
-            if user["mobile"] == mobile:
-                return user
-        return None
+        with self._session() as s:
+            u = s.query(User).filter_by(mobile=mobile).first()
+            return u.to_dict() if u else None
 
     def update_user(self, user_id: int, **kwargs) -> Optional[Dict[str, Any]]:
-        with self.lock:
-            data = self._read_data()
-            for user in data["users"]:
-                if user["id"] == user_id:
-                    user.update(kwargs)
-                    self._write_data(data)
-                    return user
-            return None
+        with self._session() as s:
+            u = s.get(User, user_id)
+            if not u:
+                return None
+            for k, v in kwargs.items():
+                if hasattr(u, k):
+                    setattr(u, k, v)
+            s.flush()
+            return u.to_dict()
 
     def delete_user(self, user_id: int) -> bool:
-        with self.lock:
-            data = self._read_data()
-            before = len(data["users"])
-            data["users"] = [u for u in data["users"] if u["id"] != user_id]
-            if len(data["users"]) < before:
-                self._write_data(data)
-                return True
-            return False
+        with self._session() as s:
+            u = s.get(User, user_id)
+            if not u:
+                return False
+            s.delete(u)
+            return True
 
     def get_all_users(self) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        return sorted(data["users"], key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            users = s.query(User).order_by(User.created_at.desc()).all()
+            return [u.to_dict() for u in users]
 
     def get_users_by_affiliate(self, affiliate_code: str) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        return [u for u in data["users"] if u.get("affiliate_code") == affiliate_code]
+        with self._session() as s:
+            users = s.query(User).filter_by(affiliate_code=affiliate_code).all()
+            return [u.to_dict() for u in users]
 
     # =====================================================
     # PAYMENT OPERATIONS
     # =====================================================
 
     def create_payment(self, name: str, mobile: str, reference: str, amount: int,
-                      method: str = "mpesa", status: str = "pending",
-                      provider_payment_id: Optional[str] = None,
-                      checkout_url: Optional[str] = None,
-                      affiliate_code: Optional[str] = None,
-                      commission_amount: int = 0) -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            for payment in data["payments"]:
-                if payment["reference"] == reference:
-                    raise ValueError("Payment with this reference already exists")
-            payment_id = self._get_next_id("payments", data)
-            payment = {
-                "id": payment_id,
-                "name": name,
-                "mobile": mobile,
-                "reference": reference,
-                "amount": amount,
-                "method": method,
-                "status": status,
-                "provider_payment_id": provider_payment_id,
-                "provider_reference": None,
-                "checkout_url": checkout_url,
-                "affiliate_code": affiliate_code,
-                "commission_amount": commission_amount,
-                "commission_paid": False,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            data["payments"].append(payment)
-            self._write_data(data)
-            return payment
+                       method: str = "mpesa", status: str = "pending",
+                       provider_payment_id: Optional[str] = None,
+                       checkout_url: Optional[str] = None,
+                       affiliate_code: Optional[str] = None,
+                       commission_amount: int = 0) -> Dict[str, Any]:
+        with self._session() as s:
+            if s.query(Payment).filter_by(reference=reference).first():
+                raise ValueError("Payment with this reference already exists")
+            p = Payment(
+                name=name, mobile=mobile, reference=reference, amount=amount,
+                method=method, status=status, provider_payment_id=provider_payment_id,
+                checkout_url=checkout_url, affiliate_code=affiliate_code,
+                commission_amount=commission_amount, created_at=_now()
+            )
+            s.add(p)
+            s.flush()
+            return p.to_dict()
 
     def get_payment_by_reference(self, reference: str) -> Optional[Dict[str, Any]]:
-        data = self._read_data()
-        for payment in data["payments"]:
-            if payment["reference"] == reference:
-                return payment
-        return None
+        with self._session() as s:
+            p = s.query(Payment).filter_by(reference=reference).first()
+            return p.to_dict() if p else None
 
     def get_payments_by_mobile(self, mobile: str) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        payments = [p for p in data["payments"] if p["mobile"] == mobile]
-        return sorted(payments, key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(Payment).filter_by(mobile=mobile).order_by(Payment.created_at.desc()).all()
+            return [p.to_dict() for p in rows]
 
     def update_payment(self, reference: str, **kwargs) -> Optional[Dict[str, Any]]:
-        with self.lock:
-            data = self._read_data()
-            for payment in data["payments"]:
-                if payment["reference"] == reference:
-                    payment.update(kwargs)
-                    self._write_data(data)
-                    return payment
-            return None
+        with self._session() as s:
+            p = s.query(Payment).filter_by(reference=reference).first()
+            if not p:
+                return None
+            for k, v in kwargs.items():
+                if hasattr(p, k):
+                    setattr(p, k, v)
+            s.flush()
+            return p.to_dict()
 
     def delete_payments_by_status(self, status: str) -> int:
-        with self.lock:
-            data = self._read_data()
-            before = len(data["payments"])
-            data["payments"] = [p for p in data["payments"] if p["status"] != status]
-            deleted = before - len(data["payments"])
-            if deleted:
-                self._write_data(data)
+        with self._session() as s:
+            deleted = s.query(Payment).filter_by(status=status).delete()
             return deleted
 
     def get_all_payments(self) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        return sorted(data["payments"], key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(Payment).order_by(Payment.created_at.desc()).all()
+            return [p.to_dict() for p in rows]
 
-    def get_payments_by_affiliate(self, affiliate_code: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        payments = [p for p in data["payments"] if p.get("affiliate_code") == affiliate_code]
-        if status:
-            payments = [p for p in payments if p["status"] == status]
-        return payments
+    def get_payments_by_affiliate(self, affiliate_code: str,
+                                  status: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._session() as s:
+            q = s.query(Payment).filter_by(affiliate_code=affiliate_code)
+            if status:
+                q = q.filter_by(status=status)
+            return [p.to_dict() for p in q.all()]
 
     # =====================================================
     # AFFILIATE OPERATIONS
     # =====================================================
 
     def create_affiliate(self, code: str, name: str, mobile: Optional[str] = None,
-                        commission_rate: int = 20, password: Optional[str] = None) -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            for affiliate in data["affiliates"]:
-                if affiliate["code"] == code:
-                    raise ValueError("Affiliate with this code already exists")
-            affiliate_id = self._get_next_id("affiliates", data)
-            affiliate = {
-                "id": affiliate_id,
-                "code": code,
-                "name": name,
-                "mobile": mobile,
-                "commission_rate": commission_rate,
-                "total_referrals": 0,
-                "total_earnings": 0,
-                "is_active": True,
-                "password": password,
-                "password_reset_required": False,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            data["affiliates"].append(affiliate)
-            self._write_data(data)
-            return affiliate
+                         commission_rate: int = 20, password: Optional[str] = None) -> Dict[str, Any]:
+        with self._session() as s:
+            if s.query(Affiliate).filter_by(code=code).first():
+                raise ValueError("Affiliate with this code already exists")
+            a = Affiliate(code=code, name=name, mobile=mobile,
+                          commission_rate=commission_rate, password=password,
+                          created_at=_now())
+            s.add(a)
+            s.flush()
+            return a.to_dict()
 
     def get_affiliate_by_code(self, code: str) -> Optional[Dict[str, Any]]:
-        data = self._read_data()
-        for affiliate in data["affiliates"]:
-            if affiliate["code"] == code:
-                return affiliate
-        return None
+        with self._session() as s:
+            a = s.query(Affiliate).filter_by(code=code).first()
+            return a.to_dict() if a else None
 
     def get_affiliate_by_id(self, affiliate_id: int) -> Optional[Dict[str, Any]]:
-        data = self._read_data()
-        for affiliate in data["affiliates"]:
-            if affiliate["id"] == affiliate_id:
-                return affiliate
-        return None
+        with self._session() as s:
+            a = s.get(Affiliate, affiliate_id)
+            return a.to_dict() if a else None
 
     def update_affiliate(self, affiliate_id: int, **kwargs) -> Optional[Dict[str, Any]]:
-        with self.lock:
-            data = self._read_data()
-            for affiliate in data["affiliates"]:
-                if affiliate["id"] == affiliate_id:
-                    affiliate.update(kwargs)
-                    self._write_data(data)
-                    return affiliate
-            return None
+        with self._session() as s:
+            a = s.get(Affiliate, affiliate_id)
+            if not a:
+                return None
+            for k, v in kwargs.items():
+                if hasattr(a, k):
+                    setattr(a, k, v)
+            s.flush()
+            return a.to_dict()
 
     def get_all_affiliates(self) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        return sorted(data["affiliates"], key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(Affiliate).order_by(Affiliate.created_at.desc()).all()
+            return [a.to_dict() for a in rows]
 
     # =====================================================
     # PAYOUT OPERATIONS
     # =====================================================
 
     def create_payout(self, affiliate_id: int, amount: int, method: str = "bank_transfer",
-                     notes: Optional[str] = None, paid_by: Optional[str] = None,
-                     provider_payout_id: Optional[str] = None,
-                     provider_reference: Optional[str] = None,
-                     status: str = "pending") -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            if "payouts" not in data:
-                data["payouts"] = []
-            affiliate = next((a for a in data["affiliates"] if a["id"] == affiliate_id), None)
-            if not affiliate:
+                      notes: Optional[str] = None, paid_by: Optional[str] = None,
+                      provider_payout_id: Optional[str] = None,
+                      provider_reference: Optional[str] = None,
+                      status: str = "pending") -> Dict[str, Any]:
+        with self._session() as s:
+            a = s.get(Affiliate, affiliate_id)
+            if not a:
                 raise ValueError("Affiliate not found")
-            payout_id = self._get_next_id("payouts", data)
-            payout = {
-                "id": payout_id,
-                "affiliate_id": affiliate_id,
-                "affiliate_code": affiliate["code"],
-                "affiliate_name": affiliate["name"],
-                "affiliate_mobile": affiliate.get("mobile"),
-                "amount": amount,
-                "method": method,
-                "status": status,
-                "provider_payout_id": provider_payout_id,
-                "provider_reference": provider_reference,
-                "notes": notes,
-                "paid_by": paid_by,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }
-            data["payouts"].append(payout)
+            now = _now()
+            p = Payout(
+                affiliate_id=affiliate_id, affiliate_code=a.code,
+                affiliate_name=a.name, affiliate_mobile=a.mobile,
+                amount=amount, method=method, status=status,
+                provider_payout_id=provider_payout_id,
+                provider_reference=provider_reference,
+                notes=notes, paid_by=paid_by,
+                created_at=now, updated_at=now
+            )
+            s.add(p)
             if status == "completed":
-                for a in data["affiliates"]:
-                    if a["id"] == affiliate_id:
-                        a["total_earnings"] = max(0, a["total_earnings"] - amount)
-                        break
-            self._write_data(data)
-            return payout
+                a.total_earnings = max(0, a.total_earnings - amount)
+            s.flush()
+            return p.to_dict()
 
     def get_payout_by_id(self, payout_id: int) -> Optional[Dict[str, Any]]:
-        data = self._read_data()
-        for payout in data["payouts"]:
-            if payout["id"] == payout_id:
-                return payout
-        return None
+        with self._session() as s:
+            p = s.get(Payout, payout_id)
+            return p.to_dict() if p else None
 
     def get_payouts_by_affiliate(self, affiliate_id: int) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        payouts = [p for p in data["payouts"] if p["affiliate_id"] == affiliate_id]
-        return sorted(payouts, key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(Payout).filter_by(affiliate_id=affiliate_id).order_by(Payout.created_at.desc()).all()
+            return [p.to_dict() for p in rows]
 
     def get_all_payouts(self) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        if "payouts" not in data:
-            data["payouts"] = []
-            self._write_data(data)
-        return sorted(data["payouts"], key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(Payout).order_by(Payout.created_at.desc()).all()
+            return [p.to_dict() for p in rows]
 
     def update_payout(self, payout_id: int, **kwargs) -> Optional[Dict[str, Any]]:
-        with self.lock:
-            data = self._read_data()
-            for payout in data.get("payouts", []):
-                if payout["id"] == payout_id:
-                    old_status = payout.get("status")
-                    payout.update(kwargs)
-                    payout["updated_at"] = datetime.now(timezone.utc).isoformat()
-                    if old_status == "pending" and payout.get("status") == "completed":
-                        for a in data["affiliates"]:
-                            if a["id"] == payout["affiliate_id"]:
-                                a["total_earnings"] = max(0, a["total_earnings"] - payout["amount"])
-                                break
-                    self._write_data(data)
-                    return payout
-            return None
+        with self._session() as s:
+            p = s.get(Payout, payout_id)
+            if not p:
+                return None
+            old_status = p.status
+            for k, v in kwargs.items():
+                if hasattr(p, k):
+                    setattr(p, k, v)
+            p.updated_at = _now()
+            if old_status == "pending" and p.status == "completed":
+                a = s.get(Affiliate, p.affiliate_id)
+                if a:
+                    a.total_earnings = max(0, a.total_earnings - p.amount)
+            s.flush()
+            return p.to_dict()
 
     def add_affiliate_credit(self, affiliate_id: int, amount: int) -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            affiliate = next((a for a in data["affiliates"] if a["id"] == affiliate_id), None)
-            if not affiliate:
+        with self._session() as s:
+            a = s.get(Affiliate, affiliate_id)
+            if not a:
                 raise ValueError("Affiliate not found")
-            affiliate["total_earnings"] = affiliate.get("total_earnings", 0) + amount
-            self._write_data(data)
-            return affiliate
-
+            a.total_earnings = (a.total_earnings or 0) + amount
+            s.flush()
+            return a.to_dict()
 
     # =====================================================
     # PROMOTIONS
@@ -456,56 +297,48 @@ class JSONDatabase:
 
     def create_promotion(self, name: str, description: str, extra_days: int,
                          start_date: str, end_date: str) -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            if "promotions" not in data:
-                data["promotions"] = []
-            promo_id = self._get_next_id("promotions", data)
-            promo = {
-                "id": promo_id,
-                "name": name,
-                "description": description,
-                "extra_days": extra_days,
-                "start_date": start_date,
-                "end_date": end_date,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            data["promotions"].append(promo)
-            self._write_data(data)
-            return promo
+        with self._session() as s:
+            promo = Promotion(
+                name=name, description=description, extra_days=extra_days,
+                start_date=start_date, end_date=end_date, created_at=_now()
+            )
+            s.add(promo)
+            s.flush()
+            return promo.to_dict()
 
     def get_all_promotions(self) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        return sorted(data.get("promotions", []), key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(Promotion).order_by(Promotion.created_at.desc()).all()
+            return [p.to_dict() for p in rows]
 
     def get_active_promotions(self) -> List[Dict[str, Any]]:
-        now = datetime.now(timezone.utc).isoformat()
-        data = self._read_data()
-        return [
-            p for p in data.get("promotions", [])
-            if p.get("is_active") and p.get("start_date", "") <= now <= p.get("end_date", "")
-        ]
+        now = _now()
+        with self._session() as s:
+            rows = s.query(Promotion).filter(
+                Promotion.is_active == True,
+                Promotion.start_date <= now,
+                Promotion.end_date >= now,
+            ).all()
+            return [p.to_dict() for p in rows]
 
     def update_promotion(self, promo_id: int, **kwargs) -> Optional[Dict[str, Any]]:
-        with self.lock:
-            data = self._read_data()
-            for p in data.get("promotions", []):
-                if p["id"] == promo_id:
-                    p.update(kwargs)
-                    self._write_data(data)
-                    return p
-            return None
+        with self._session() as s:
+            p = s.get(Promotion, promo_id)
+            if not p:
+                return None
+            for k, v in kwargs.items():
+                if hasattr(p, k):
+                    setattr(p, k, v)
+            s.flush()
+            return p.to_dict()
 
     def delete_promotion(self, promo_id: int) -> bool:
-        with self.lock:
-            data = self._read_data()
-            before = len(data.get("promotions", []))
-            data["promotions"] = [p for p in data.get("promotions", []) if p["id"] != promo_id]
-            if len(data["promotions"]) < before:
-                self._write_data(data)
-                return True
-            return False
+        with self._session() as s:
+            p = s.get(Promotion, promo_id)
+            if not p:
+                return False
+            s.delete(p)
+            return True
 
     # =====================================================
     # PRACTICE SESSION OPERATIONS
@@ -516,78 +349,149 @@ class JSONDatabase:
                                grammar: str, pronunciation: str, examples: list,
                                grammar_score: int, pronunciation_score: int,
                                double_xp: bool = False) -> Dict[str, Any]:
-        with self.lock:
-            data = self._read_data()
-            if "practice_sessions" not in data:
-                data["practice_sessions"] = []
-            if "_counters" not in data:
-                data["_counters"] = {}
-            if "practice_sessions" not in data["_counters"]:
-                data["_counters"]["practice_sessions"] = 0
-
-            session_id = self._get_next_id("practice_sessions", data)
+        with self._session() as s:
             avg_score = round((grammar_score + pronunciation_score) / 2)
             base_xp = max(5, avg_score)
             xp_earned = base_xp * 2 if double_xp else base_xp
 
-            session = {
-                "id": session_id,
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "scenario": scenario,
-                "question": question,
-                "transcript": transcript,
-                "corrected": corrected,
-                "grammar": grammar,
-                "pronunciation": pronunciation,
-                "examples": examples,
-                "grammar_score": grammar_score,
-                "pronunciation_score": pronunciation_score,
-                "avg_score": avg_score,
-                "xp_earned": xp_earned,
-                "double_xp": double_xp,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            data["practice_sessions"].append(session)
+            session = PracticeSession(
+                user_id=user_id, conversation_id=conversation_id,
+                scenario=scenario, question=question, transcript=transcript,
+                corrected=corrected, grammar=grammar, pronunciation=pronunciation,
+                examples=examples, grammar_score=grammar_score,
+                pronunciation_score=pronunciation_score, avg_score=avg_score,
+                xp_earned=xp_earned, double_xp=double_xp, created_at=_now()
+            )
+            s.add(session)
 
-            # Update user XP
-            for user in data["users"]:
-                if user["id"] == user_id:
-                    user["xp"] = user.get("xp", 0) + xp_earned
-                    user["total_sessions"] = user.get("total_sessions", 0) + 1
-                    break
+            u = s.get(User, user_id)
+            if u:
+                u.xp = (u.xp or 0) + xp_earned
+                u.total_sessions = (u.total_sessions or 0) + 1
 
-            self._write_data(data)
-            return session
+            s.flush()
+            return session.to_dict()
 
     def get_sessions_by_user(self, user_id: int) -> List[Dict[str, Any]]:
-        data = self._read_data()
-        sessions = [s for s in data.get("practice_sessions", []) if s["user_id"] == user_id]
-        return sorted(sessions, key=lambda x: x["created_at"], reverse=True)
+        with self._session() as s:
+            rows = s.query(PracticeSession).filter_by(user_id=user_id).order_by(
+                PracticeSession.created_at.desc()
+            ).all()
+            return [r.to_dict() for r in rows]
 
     def get_user_progress(self, user_id: int) -> Dict[str, Any]:
-        data = self._read_data()
-        user = next((u for u in data["users"] if u["id"] == user_id), None)
-        if not user:
-            return {}
-        sessions = [s for s in data.get("practice_sessions", []) if s["user_id"] == user_id]
-        xp = user.get("xp", 0)
-        level_info = get_level(xp)
-        avg_grammar = round(sum(s["grammar_score"] for s in sessions) / len(sessions), 1) if sessions else 0
-        avg_pronunciation = round(sum(s["pronunciation_score"] for s in sessions) / len(sessions), 1) if sessions else 0
-        return {
-            "user_id": user_id,
-            "name": user["name"],
-            "xp": xp,
-            "level": level_info["name"],
-            "next_level": level_info["next_level"],
-            "xp_to_next": level_info["xp_to_next"],
-            "total_sessions": user.get("total_sessions", 0),
-            "avg_grammar_score": avg_grammar,
-            "avg_pronunciation_score": avg_pronunciation,
-            "recent_sessions": sorted(sessions, key=lambda x: x["created_at"], reverse=True)[:10]
-        }
+        with self._session() as s:
+            u = s.get(User, user_id)
+            if not u:
+                return {}
+            sessions = s.query(PracticeSession).filter_by(user_id=user_id).all()
+            xp = u.xp or 0
+            level_info = get_level(xp)
+            avg_grammar = round(sum(r.grammar_score for r in sessions) / len(sessions), 1) if sessions else 0
+            avg_pronunciation = round(sum(r.pronunciation_score for r in sessions) / len(sessions), 1) if sessions else 0
+            recent = sorted(sessions, key=lambda x: x.created_at, reverse=True)[:10]
+            return {
+                "user_id": user_id,
+                "name": u.name,
+                "xp": xp,
+                "level": level_info["name"],
+                "next_level": level_info["next_level"],
+                "xp_to_next": level_info["xp_to_next"],
+                "total_sessions": u.total_sessions or 0,
+                "avg_grammar_score": avg_grammar,
+                "avg_pronunciation_score": avg_pronunciation,
+                "recent_sessions": [r.to_dict() for r in recent],
+            }
+
+    # =====================================================
+    # DATA MIGRATION (import from JSON snapshot)
+    # =====================================================
+
+    def load_snapshot(self, snapshot: Dict[str, Any]):
+        """Import an old JSON-file snapshot into the relational tables (one-time migration)."""
+        import json as _json
+
+        def _coerce(v):
+            # Convert non-JSON-serialisable types the old driver might have stored
+            if isinstance(v, list):
+                return _json.dumps(v)
+            return v
+
+        with self._session() as s:
+            for u in snapshot.get("users", []):
+                if not s.query(User).filter_by(mobile=u["mobile"]).first():
+                    s.add(User(
+                        id=u.get("id"), name=u["name"], mobile=u["mobile"],
+                        role=u.get("role", "student"), is_paid=u.get("is_paid", False),
+                        is_active=u.get("is_active", True), is_banned=u.get("is_banned", False),
+                        affiliate_code=u.get("affiliate_code"),
+                        xp=u.get("xp", 0), total_sessions=u.get("total_sessions", 0),
+                        token_version=u.get("token_version", 0), device_id=u.get("device_id"),
+                        created_at=u.get("created_at", _now())
+                    ))
+
+            for p in snapshot.get("payments", []):
+                if not s.query(Payment).filter_by(reference=p["reference"]).first():
+                    s.add(Payment(
+                        id=p.get("id"), name=p["name"], mobile=p["mobile"],
+                        reference=p["reference"], amount=p["amount"],
+                        method=p.get("method", "mpesa"), status=p.get("status", "pending"),
+                        provider_payment_id=p.get("provider_payment_id"),
+                        provider_reference=p.get("provider_reference"),
+                        checkout_url=p.get("checkout_url"),
+                        affiliate_code=p.get("affiliate_code"),
+                        commission_amount=p.get("commission_amount", 0),
+                        commission_paid=p.get("commission_paid", False),
+                        created_at=p.get("created_at", _now())
+                    ))
+
+            for a in snapshot.get("affiliates", []):
+                if not s.query(Affiliate).filter_by(code=a["code"]).first():
+                    s.add(Affiliate(
+                        id=a.get("id"), code=a["code"], name=a["name"],
+                        mobile=a.get("mobile"), commission_rate=a.get("commission_rate", 20),
+                        total_referrals=a.get("total_referrals", 0),
+                        total_earnings=a.get("total_earnings", 0),
+                        is_active=a.get("is_active", True), password=a.get("password"),
+                        password_reset_required=a.get("password_reset_required", False),
+                        created_at=a.get("created_at", _now())
+                    ))
+
+            for p in snapshot.get("payouts", []):
+                if not s.get(Payout, p.get("id")):
+                    s.add(Payout(
+                        id=p.get("id"), affiliate_id=p["affiliate_id"],
+                        affiliate_code=p["affiliate_code"], affiliate_name=p["affiliate_name"],
+                        affiliate_mobile=p.get("affiliate_mobile"),
+                        amount=p["amount"], method=p.get("method", "bank_transfer"),
+                        status=p.get("status", "pending"),
+                        provider_payout_id=p.get("provider_payout_id"),
+                        provider_reference=p.get("provider_reference"),
+                        notes=p.get("notes"), paid_by=p.get("paid_by"),
+                        created_at=p.get("created_at", _now()),
+                        updated_at=p.get("updated_at", _now())
+                    ))
+
+            for ps in snapshot.get("practice_sessions", []):
+                if not s.get(PracticeSession, ps.get("id")):
+                    ex = ps.get("examples")
+                    s.add(PracticeSession(
+                        id=ps.get("id"), user_id=ps["user_id"],
+                        conversation_id=ps.get("conversation_id", 0),
+                        scenario=ps.get("scenario", ""), question=ps.get("question", ""),
+                        transcript=ps.get("transcript"), corrected=ps.get("corrected"),
+                        grammar=ps.get("grammar"), pronunciation=ps.get("pronunciation"),
+                        examples=ex if isinstance(ex, list) else [],
+                        grammar_score=ps.get("grammar_score", 0),
+                        pronunciation_score=ps.get("pronunciation_score", 0),
+                        avg_score=ps.get("avg_score", 0),
+                        xp_earned=ps.get("xp_earned", 0),
+                        double_xp=ps.get("double_xp", False),
+                        created_at=ps.get("created_at", _now())
+                    ))
+
+        print("[DB] Snapshot import complete.")
 
 
-# Global database instance
+# Global singleton
 db = JSONDatabase()

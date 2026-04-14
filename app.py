@@ -53,30 +53,27 @@ async def _keep_alive():
             pass
         await asyncio.sleep(14 * 60)
 
-def _auto_migrate_if_empty():
-    """On startup: if PostgreSQL is empty, load database.json if it exists locally."""
-    if not db._use_postgres:
+def _import_json_snapshot_if_needed():
+    """One-time: if the new SQLAlchemy tables are empty, import database.json."""
+    import json as _json
+    local_file = os.path.join(os.path.dirname(__file__), "database.json")
+    if not os.path.exists(local_file):
         return
     try:
-        data = db._read_data()
-        if any([data.get("users"), data.get("payments"), data.get("affiliates")]):
-            print("[STARTUP] PostgreSQL already has data — skipping migration")
+        existing = db.get_all_users()
+        if existing:
+            print("[STARTUP] Tables already have data — skipping JSON import")
             return
-        import json as _json
-        local_file = os.path.join(os.path.dirname(__file__), "database.json")
-        if os.path.exists(local_file):
-            with open(local_file, "r", encoding="utf-8") as f:
-                snapshot = _json.load(f)
-            db.load_snapshot(snapshot)
-            print("[STARTUP] Migrated database.json → PostgreSQL")
-        else:
-            print("[STARTUP] PostgreSQL is empty, no database.json found — starting fresh")
+        with open(local_file, "r", encoding="utf-8") as f:
+            snapshot = _json.load(f)
+        db.load_snapshot(snapshot)
+        print("[STARTUP] Imported database.json into SQLAlchemy tables")
     except Exception as e:
-        print(f"[STARTUP] Auto-migration check failed: {e}")
+        print(f"[STARTUP] JSON import check failed: {e}")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    _auto_migrate_if_empty()
+    _import_json_snapshot_if_needed()
     asyncio.create_task(_poll_pending_payments())
     asyncio.create_task(_keep_alive())
     yield
