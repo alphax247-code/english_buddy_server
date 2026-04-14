@@ -9,9 +9,9 @@ from sqlalchemy.orm import sessionmaker
 _DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if _DATABASE_URL:
-    # Render provides postgres:// — SQLAlchemy needs postgresql://
-    if _DATABASE_URL.startswith("postgres://"):
-        _DATABASE_URL = _DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    # Render provides postgres:// — normalise and use psycopg3 dialect
+    _DATABASE_URL = _DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    _DATABASE_URL = _DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
     engine = create_engine(_DATABASE_URL, pool_pre_ping=True)
 else:
     _db_path = os.path.join(os.path.dirname(__file__), "local.db")

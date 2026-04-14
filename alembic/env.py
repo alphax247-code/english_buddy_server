@@ -15,8 +15,8 @@ config = context.config
 
 # Override sqlalchemy.url with the real DATABASE_URL from env
 _db_url = os.getenv("DATABASE_URL", "")
-if _db_url.startswith("postgres://"):
-    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+_db_url = _db_url.replace("postgres://", "postgresql://", 1)
+_db_url = _db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 if not _db_url:
     _db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "local.db")
     _db_url = f"sqlite:///{_db_path}"
