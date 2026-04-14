@@ -12,7 +12,8 @@
 <body>
   <nav>
     <a href="/" class="logo">🎓 English Buddy</a>
-    <div>
+    <div style="display:flex;align-items:center;gap:1rem;">
+      <button class="dark-toggle" id="dark-toggle-btn" onclick="toggleDark()">🌙 Dark</button>
       <a href="/dashboard">Dashboard</a>
       <a href="#" onclick="logout()">Logout</a>
     </div>
@@ -74,6 +75,7 @@
       <button class="tab-btn" onclick="switchTab('payouts')">💰 Payouts</button>
       <button class="tab-btn" onclick="switchTab('promotions')">🎁 Promotions</button>
       <button class="tab-btn" onclick="switchTab('access')">🔑 Access</button>
+      <button class="tab-btn" id="notif-tab-btn" onclick="switchTab('notifications')">🔔 Notifications <span id="notif-badge" style="display:none;background:#ef4444;color:#fff;border-radius:9999px;padding:.1rem .45rem;font-size:.7rem;margin-left:.25rem;"></span></button>
     </div>
 
     <!-- OVERVIEW TAB -->
@@ -349,6 +351,60 @@
       </div>
 
     </div>
+
+    <!-- NOTIFICATIONS TAB -->
+    <div id="tab-notifications" style="display:none;">
+
+      <!-- Priority Alerts -->
+      <div class="card" style="border-left:4px solid #ef4444;">
+        <h2 style="color:#ef4444;">⚡ Priority Alerts</h2>
+        <div id="priority-alerts"><div class="spinner"></div></div>
+      </div>
+
+      <!-- Send Notification -->
+      <div class="card">
+        <h2>📤 Send Notification</h2>
+        <p class="text-muted" style="margin:.5rem 0 1rem;">Send an in-app message to a specific user or broadcast to everyone.</p>
+        <div class="form-group">
+          <label>Title</label>
+          <input type="text" id="notif-title" placeholder="e.g. Important update" />
+        </div>
+        <div class="form-group">
+          <label>Message</label>
+          <textarea id="notif-body" rows="3" placeholder="Message content..." style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical;"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="notif-type" style="padding:.4rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+            <option value="info">ℹ️ Info</option>
+            <option value="success">✅ Success</option>
+            <option value="warning">⚠️ Warning</option>
+            <option value="danger">🚨 Urgent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Target</label>
+          <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+            <select id="notif-target" style="padding:.4rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);" onchange="toggleNotifUserField()">
+              <option value="all">📢 All Users</option>
+              <option value="user">👤 Specific User</option>
+            </select>
+            <input type="number" id="notif-user-id" placeholder="User ID" style="display:none;padding:.4rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);width:120px;" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="sendNotification()">Send Notification</button>
+      </div>
+
+      <!-- Notification History -->
+      <div class="card">
+        <div class="flex-between mb-2">
+          <h2>📋 Notification History</h2>
+          <button class="btn btn-sm" onclick="loadNotificationsTab()">↻ Refresh</button>
+        </div>
+        <div id="notifications-history"><div class="spinner"></div></div>
+      </div>
+
+    </div>
     </div>
   </div>
 
@@ -491,6 +547,25 @@
 
   <script src="/static/js/app.js"></script>
   <script>
+    // ===== DARK MODE =====
+    function toggleDark() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const next = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      document.getElementById('dark-toggle-btn').textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
+    }
+    (function() {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        document.addEventListener('DOMContentLoaded', function() {
+          const btn = document.getElementById('dark-toggle-btn');
+          if (btn) btn.textContent = '☀️ Light';
+        });
+      }
+    })();
+
     // Redirect to admin login if not authenticated
     const token = localStorage.getItem('token');
     if (!token) {
@@ -520,7 +595,7 @@
 
     // ===== TAB SWITCHING =====
     function switchTab(tabName) {
-      ['overview', 'affiliates', 'users', 'payments', 'payouts', 'promotions', 'access'].forEach(t => {
+      ['overview', 'affiliates', 'users', 'payments', 'payouts', 'promotions', 'access', 'notifications'].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === tabName ? 'block' : 'none';
       });
 
@@ -533,6 +608,7 @@
       if (tabName === 'payouts') loadPayouts();
       if (tabName === 'promotions') loadPromotions();
       if (tabName === 'access') loadAccess();
+      if (tabName === 'notifications') loadNotificationsTab();
       if (tabName === 'overview') {
         loadRecentActivity();
         loadTopAffiliates();
@@ -935,14 +1011,26 @@
         return;
       }
 
-      const rows = users.map(u => `
-        <tr>
+      const roleOrder = { admin: 0, affiliate: 1, student: 2 };
+      const groupLabel = { admin: '👤 Admins', affiliate: '👥 Affiliates', student: '🎓 Students' };
+      const sorted = [...users].sort((a, b) => (roleOrder[a.role||'student']||2) - (roleOrder[b.role||'student']||2));
+
+      let rows = '';
+      let lastRole = null;
+      for (const u of sorted) {
+        const role = u.role || 'student';
+        if (role !== lastRole) {
+          rows += `<tr class="group-header group-${role}"><td colspan="10">${groupLabel[role] || role}</td></tr>`;
+          lastRole = role;
+        }
+        rows += `
+        <tr class="role-${role}">
           <td>${u.id}</td>
           <td><strong>${u.name}</strong></td>
           <td>${u.mobile}</td>
           <td><span class="badge badge-${u.is_paid ? 'success' : 'warning'}">${u.is_paid ? 'Paid' : 'Unpaid'}</span></td>
           <td><span class="badge badge-${u.is_banned ? 'danger' : u.is_active ? 'success' : 'warning'}">${u.is_banned ? 'Banned' : u.is_active ? 'Active' : 'Inactive'}</span></td>
-          <td><span class="badge">${u.role || 'student'}</span></td>
+          <td><span class="badge badge-role-${role}">${role}</span></td>
           <td>${u.affiliate_code ? `<code>${u.affiliate_code}</code>` : '<span class="text-muted">None</span>'}</td>
           <td style="white-space:nowrap;">
             <span style="font-size:.8rem;">${u.extra_days > 0 ? `+${u.extra_days}d bonus` : '—'}</span>
@@ -952,16 +1040,16 @@
           <td>
             <div class="flex" style="gap:.25rem;">
               <select onchange="changeUserRole(${u.id}, this.value)" style="font-size:.75rem;padding:.2rem .4rem;border:1px solid var(--border);border-radius:4px;">
-                <option value="student" ${(u.role||'student')==='student'?'selected':''}>Student</option>
-                <option value="affiliate" ${u.role==='affiliate'?'selected':''}>Affiliate</option>
-                <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+                <option value="student" ${role==='student'?'selected':''}>Student</option>
+                <option value="affiliate" ${role==='affiliate'?'selected':''}>Affiliate</option>
+                <option value="admin" ${role==='admin'?'selected':''}>Admin</option>
               </select>
               <button class="btn btn-sm ${u.is_banned ? 'btn-success' : 'btn-warning'}" onclick="toggleBan(${u.id}, ${!u.is_banned})">${u.is_banned ? 'Unban' : 'Ban'}</button>
-              ${u.role !== 'admin' ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id}, '${u.name}')">Delete</button>` : ''}
+              ${role !== 'admin' ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id}, '${u.name}')">Delete</button>` : ''}
             </div>
           </td>
-        </tr>
-      `).join('');
+        </tr>`;
+      }
 
       document.getElementById('users-table').innerHTML = `
         <table>
@@ -1772,12 +1860,116 @@
         </table>`;
     }
 
+    // ===== NOTIFICATIONS =====
+    async function loadNotificationsTab() {
+      try {
+        const [priorityRes, historyRes] = await Promise.all([
+          API.get('/api/admin/notifications/priority'),
+          API.get('/api/admin/notifications'),
+        ]);
+
+        // Priority alerts
+        const pBox = document.getElementById('priority-alerts');
+        let html = '';
+        if (priorityRes.pending_payments_count > 0) {
+          html += `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:1rem;margin-bottom:.75rem;">
+            <strong style="color:#dc2626;">💳 ${priorityRes.pending_payments_count} Pending Payment(s)</strong>
+            <div style="margin-top:.5rem;font-size:.85rem;">
+              ${priorityRes.pending_payments.map(p => `<div style="padding:.25rem 0;border-top:1px solid #fecaca;">${p.name} — ${p.mobile} — ${p.amount} MZN — <span class="text-muted">${formatDate(p.created_at)}</span></div>`).join('')}
+            </div>
+          </div>`;
+        }
+        if (priorityRes.expiring_users.length > 0) {
+          html += `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:1rem;margin-bottom:.75rem;">
+            <strong style="color:#d97706;">⏰ ${priorityRes.expiring_users.length} User(s) Access Expiring Within 7 Days</strong>
+            <div style="margin-top:.5rem;font-size:.85rem;">
+              ${priorityRes.expiring_users.map(u => `<div style="padding:.25rem 0;border-top:1px solid #fde68a;">${u.name} — ${u.mobile} — <span class="badge badge-${u.days_left <= 1 ? 'danger' : 'warning'}">${u.days_left}d left</span></div>`).join('')}
+            </div>
+          </div>`;
+        }
+        if (!html) html = '<div class="empty-state" style="padding:1rem;"><div class="empty-state-icon">✅</div><div class="empty-state-title">No priority alerts</div></div>';
+        pBox.innerHTML = html;
+
+        // Update badge
+        const totalAlerts = priorityRes.pending_payments_count + priorityRes.expiring_users.length;
+        const badge = document.getElementById('notif-badge');
+        if (totalAlerts > 0) {
+          badge.textContent = totalAlerts;
+          badge.style.display = '';
+        } else {
+          badge.style.display = 'none';
+        }
+
+        // History
+        const notifs = historyRes.notifications || [];
+        const hBox = document.getElementById('notifications-history');
+        if (!notifs.length) {
+          hBox.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No notifications sent yet</div></div>';
+        } else {
+          const typeIcon = { info: 'ℹ️', success: '✅', warning: '⚠️', danger: '🚨' };
+          const rows = notifs.map(n => `
+            <tr>
+              <td>${typeIcon[n.type] || 'ℹ️'} ${n.title}</td>
+              <td>${n.body}</td>
+              <td>${n.user_id ? `User #${n.user_id}` : '<span class="badge">All Users</span>'}</td>
+              <td>${formatDate(n.created_at)}</td>
+            </tr>`).join('');
+          hBox.innerHTML = `<table><thead><tr><th>Title</th><th>Message</th><th>Target</th><th>Sent</th></tr></thead><tbody>${rows}</tbody></table>`;
+        }
+      } catch (e) {
+        document.getElementById('priority-alerts').innerHTML = `<span class="text-muted">${e.detail || 'Failed to load.'}</span>`;
+      }
+    }
+
+    function toggleNotifUserField() {
+      const t = document.getElementById('notif-target').value;
+      document.getElementById('notif-user-id').style.display = t === 'user' ? '' : 'none';
+    }
+
+    async function sendNotification() {
+      const title = document.getElementById('notif-title').value.trim();
+      const body = document.getElementById('notif-body').value.trim();
+      const type = document.getElementById('notif-type').value;
+      const target = document.getElementById('notif-target').value;
+      const userId = target === 'user' ? parseInt(document.getElementById('notif-user-id').value) : null;
+      if (!title || !body) { showAlert('alert-box', 'Title and message are required.'); return; }
+      try {
+        const res = await API.post('/api/admin/notifications/send', { title, body, type, user_id: userId });
+        showAlert('alert-box', res.message || 'Notification sent.', 'success');
+        document.getElementById('notif-title').value = '';
+        document.getElementById('notif-body').value = '';
+        loadNotificationsTab();
+      } catch (e) {
+        showAlert('alert-box', e.detail || 'Failed to send notification.');
+      }
+    }
+
+    // Poll priority alerts every 2 minutes and update badge
+    setInterval(async () => {
+      try {
+        const res = await API.get('/api/admin/notifications/priority');
+        const total = res.pending_payments_count + res.expiring_users.length;
+        const badge = document.getElementById('notif-badge');
+        if (total > 0) { badge.textContent = total; badge.style.display = ''; }
+        else { badge.style.display = 'none'; }
+      } catch (_) {}
+    }, 2 * 60 * 1000);
+
     // ===== INIT =====
     loadStats();
     loadRecentActivity();
     loadTopAffiliates();
     loadPayments();
     populateAffiliateDropdown();
+    // Load priority badge on startup
+    setTimeout(async () => {
+      try {
+        const res = await API.get('/api/admin/notifications/priority');
+        const total = res.pending_payments_count + res.expiring_users.length;
+        const badge = document.getElementById('notif-badge');
+        if (total > 0) { badge.textContent = total; badge.style.display = ''; }
+      } catch (_) {}
+    }, 1500);
   </script>
 </body>
 </html>

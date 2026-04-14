@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException, Header
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from json_db import db
@@ -40,6 +41,10 @@ RETURN_URL = os.getenv("RETURN_URL", "http://127.0.0.1:8000/payment-return")
 CALLBACK_URL = os.getenv("CALLBACK_URL", "")
 
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")
+
+# Support contact — set these in Render env vars (no app rebuild needed to change)
+SUPPORT_WHATSAPP = os.getenv("SUPPORT_WHATSAPP", "")   # e.g. 258841234567
+SUPPORT_PHONE    = os.getenv("SUPPORT_PHONE", "")       # e.g. +258841234567
 
 async def _keep_alive():
     """Ping self every 14 minutes to prevent Render free tier spin-down."""
@@ -79,6 +84,17 @@ async def lifespan(_app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+# Allow all origins — the app is a mobile client and the admin panel is served
+# from the same Render domain, so a wildcard is safe here.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.cache = None  # Disable LRU cache (broken on Python 3.14)
@@ -93,10 +109,19 @@ class LoginPayload(BaseModel):
     password: Optional[str] = None
     device_id: Optional[str] = None
 
+def _normalize_method(method: str) -> str:
+    """Normalise payment method aliases to the canonical form PaYSuite expects."""
+    m = method.strip().lower()
+    if m in ("emola", "e-mola", "emola_mz"):
+        return "e-mola"
+    return m
+
+
 class StartPaymentPayload(BaseModel):
     mobile: str
     name: str
     method: str = "mpesa"
+    affiliate_code: Optional[str] = None
 
 class CheckPaymentPayload(BaseModel):
     reference: str
@@ -191,7 +216,9 @@ def get_current_user(authorization: str = Header(default="")):
 
     user = db.get_user_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        # Return 401 (not 404) so the Flutter app auto-logouts cleanly.
+        # This happens if the account was deleted or the DB was reset.
+        raise HTTPException(status_code=401, detail="Account not found. Please login again.")
 
     # Reject stale tokens — device switch bumps token_version in DB
     if token_version != user.get("token_version", 0):
@@ -250,6 +277,16 @@ def update_affiliate_stats(payment: dict):
 def health_check():
     return {"status": "ok"}
 
+
+@app.get("/api/contact")
+def get_contact_info():
+    """Public endpoint — app fetches admin contact details without needing auth."""
+    return {
+        "ok": True,
+        "whatsapp": SUPPORT_WHATSAPP,
+        "phone": SUPPORT_PHONE,
+    }
+
 @app.get("/", response_class=HTMLResponse)
 def login_page(request: Request):
     return templates.TemplateResponse(request, "login.html")
@@ -297,7 +334,9 @@ def login(payload: LoginPayload):
             admin_user = db.create_user(name="Admin", mobile="admin", is_paid=True, role="admin")
         elif admin_user.get("role") != "admin":
             db.update_user(admin_user["id"], role="admin")
-            admin_user = db.get_user_by_id(admin_user["id"])
+        new_version = admin_user.get("token_version", 0) + 1
+        db.update_user(admin_user["id"], token_version=new_version)
+        admin_user = db.get_user_by_id(admin_user["id"])
         token = create_token(admin_user)
         return {"ok": True, "token": token, "role": "admin", "redirect": "/admin",
                 "user": {"id": admin_user["id"], "name": admin_user["name"], "role": "admin"}}
@@ -311,12 +350,20 @@ def login(payload: LoginPayload):
             if not aff_user:
                 aff_user = db.create_user(name=affiliate["name"], mobile=aff_user_mobile,
                                           is_paid=True, role="affiliate")
-            # Include affiliate_code in token so dashboard and start-payment can use it
+            # Bump token_version so old sessions are invalidated (same device-lock as regular users)
+            new_version = aff_user.get("token_version", 0) + 1
+            if payload.device_id:
+                db.update_user(aff_user["id"], token_version=new_version, device_id=payload.device_id)
+            else:
+                db.update_user(aff_user["id"], token_version=new_version)
+            aff_user = db.get_user_by_id(aff_user["id"])
+            # Include affiliate_code and token_version in token
             payload_data = {
                 "user_id": aff_user["id"],
                 "affiliate_id": affiliate["id"],
                 "affiliate_code": affiliate["code"],
                 "role": "affiliate",
+                "token_version": aff_user.get("token_version", 0),
                 "exp": datetime.now(timezone.utc) + timedelta(days=30)
             }
             token = jwt.encode(payload_data, SECRET_KEY, algorithm=ALGORITHM)
@@ -466,7 +513,7 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
 
     mobile = process_mobile_number(payload.mobile)
     name = payload.name.strip()
-    method = payload.method.strip().lower()
+    method = _normalize_method(payload.method)
 
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -474,23 +521,28 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
     if not mobile:
         raise HTTPException(status_code=400, detail="Invalid mobile number")
 
-    if method not in {"mpesa", "emola", "credit_card"}:
+    if method not in {"mpesa", "e-mola", "credit_card"}:
         raise HTTPException(status_code=400, detail="Invalid payment method")
 
-    # Auto-detect affiliate from JWT if caller is an authenticated affiliate
+    # Resolve affiliate code: prefer explicit payload field, then JWT (affiliate scanning the QR)
     affiliate_code = None
     affiliate = None
-    if authorization.startswith("Bearer "):
+
+    candidate_code = payload.affiliate_code or None
+    if not candidate_code and authorization.startswith("Bearer "):
         try:
             token_data = jwt.decode(authorization[7:], SECRET_KEY, algorithms=[ALGORITHM])
             if token_data.get("role") == "affiliate" and token_data.get("affiliate_code"):
-                affiliate_code = token_data["affiliate_code"]
-                affiliate = db.get_affiliate_by_code(affiliate_code)
-                if not affiliate or not affiliate["is_active"]:
-                    affiliate_code = None
-                    affiliate = None
+                candidate_code = token_data["affiliate_code"]
         except JWTError:
             pass
+
+    if candidate_code:
+        affiliate = db.get_affiliate_by_code(candidate_code)
+        if affiliate and affiliate.get("is_active"):
+            affiliate_code = candidate_code
+        else:
+            affiliate = None
 
     existing_user = db.get_user_by_mobile(mobile)
     if existing_user:
@@ -498,12 +550,19 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
 
     reference = f"REG{int(datetime.now(timezone.utc).timestamp())}{mobile[-4:]}{uuid.uuid4().hex[:6].upper()}"
 
+    # Strip the leading '+' so PaYSuite gets a plain E.164 string without plus sign
+    mobile_digits = mobile.lstrip("+")
+
     body = {
         "amount": str(REGISTRATION_AMOUNT),
         "method": method,
         "reference": reference,
         "description": f"English Buddy registration for {name}",
-        "return_url": f"{RETURN_URL}?reference={reference}"
+        "return_url": f"{RETURN_URL}?reference={reference}",
+        # PaYSuite requires the payer phone for USSD-push methods (eMola, M-Pesa).
+        # Including it for all methods is harmless; missing it breaks eMola entirely.
+        "phone": mobile_digits,
+        "phone_number": mobile_digits,  # some PaYSuite versions use this key
     }
 
     if CALLBACK_URL:
@@ -569,8 +628,11 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
         "payment": {
             "reference": payment["reference"],
             "amount": payment["amount"],
+            "method": payment["method"],
             "status": payment["status"],
-            "checkout_url": payment["checkout_url"]
+            "checkout_url": payment["checkout_url"],
+            # True when the method is USSD push (no browser redirect needed)
+            "is_ussd_push": payment["method"] in ("e-mola", "mpesa"),
         }
     }
 
@@ -603,6 +665,13 @@ def check_payment_status(payload: CheckPaymentPayload):
                 "token": token,
                 "user": {"id": user["id"], "name": user["name"], "mobile": user["mobile"]}
             }
+
+    if not payment.get("provider_payment_id"):
+        return {
+            "ok": True,
+            "status": payment["status"],
+            "message": "Payment is pending — waiting for provider confirmation.",
+        }
 
     headers = {
         "Authorization": f"Bearer {PAYSUITE_API_TOKEN}",
@@ -737,6 +806,18 @@ def check_payment_by_mobile(payload: CheckPaymentByMobilePayload):
             "message": "Payment already completed",
             "token": token,
             "user": {"id": user["id"], "name": user["name"], "mobile": user["mobile"]}
+        }
+
+    if not payment.get("provider_payment_id"):
+        return {
+            "ok": True,
+            "status": payment["status"],
+            "message": "Payment is pending — waiting for provider confirmation.",
+            "payment": {
+                "reference": payment["reference"],
+                "amount": payment["amount"],
+                "checkout_url": payment.get("checkout_url"),
+            }
         }
 
     headers = {
@@ -1584,6 +1665,16 @@ def manually_complete_payment(reference: str, admin: dict = Depends(get_admin_us
         if not payment.get("commission_paid"):
             update_affiliate_stats(payment)
 
+    # Notify the user
+    target_user = user_created if isinstance(user_created, dict) else db.get_user_by_mobile(payment["mobile"])
+    if target_user:
+        db.create_notification(
+            title="Pagamento confirmado!",
+            body=f"O seu pagamento de {payment.get('amount', '')} MZN foi confirmado. Bem-vindo ao English Buddy!",
+            notif_type="success",
+            user_id=target_user["id"],
+        )
+
     return {
         "ok": True,
         "message": "Payment marked as successful",
@@ -2203,6 +2294,99 @@ def get_history(user: dict = Depends(get_current_user)):
             for s in sessions
         ]
     }
+
+
+# =====================================================
+# NOTIFICATIONS
+# =====================================================
+
+class SendNotificationPayload(BaseModel):
+    title: str
+    body: str
+    user_id: Optional[int] = None  # None = broadcast to all users
+    type: str = "info"             # "info", "success", "warning", "danger"
+
+
+@app.get("/api/notifications")
+def get_my_notifications(user: dict = Depends(get_current_user)):
+    notifs = db.get_notifications_for_user(user["id"])
+    result = []
+    for n in notifs:
+        result.append({
+            "id": n["id"],
+            "title": n["title"],
+            "body": n["body"],
+            "type": n.get("type", "info"),
+            "is_read": user["id"] in (n.get("read_by") or []),
+            "created_at": n["created_at"],
+        })
+    return {"ok": True, "notifications": result, "unread_count": db.get_unread_count(user["id"])}
+
+
+@app.post("/api/notifications/{notif_id}/read")
+def mark_notification_read(notif_id: int, user: dict = Depends(get_current_user)):
+    db.mark_notification_read(notif_id, user["id"])
+    return {"ok": True}
+
+
+@app.post("/api/admin/notifications/send")
+def admin_send_notification(payload: SendNotificationPayload, admin: dict = Depends(get_admin_user)):
+    notif = db.create_notification(
+        title=payload.title,
+        body=payload.body,
+        notif_type=payload.type,
+        user_id=payload.user_id,
+    )
+    target = f"user #{payload.user_id}" if payload.user_id else "all users"
+    return {"ok": True, "message": f"Notification sent to {target}.", "notification": notif}
+
+
+@app.get("/api/admin/notifications/priority")
+def admin_priority_notifications(admin: dict = Depends(get_admin_user)):
+    """Returns priority alerts for the admin dashboard: pending payments + expiring users."""
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+
+    # Pending payments
+    pending = [p for p in db.get_all_payments() if p["status"] == "pending"]
+
+    # Users expiring within 7 days
+    users = db.get_all_users()
+    expiring_soon = []
+    for u in users:
+        if not u.get("is_paid"):
+            continue
+        try:
+            registered = datetime.fromisoformat(u["created_at"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        is_early = u["id"] <= 200
+        base_days = 180 if is_early else 90
+        base_days += int(u.get("extra_days") or 0)
+        expiry = registered + timedelta(days=base_days)
+        days_left = (expiry - now).days
+        if 0 <= days_left <= 7:
+            expiring_soon.append({
+                "id": u["id"], "name": u["name"], "mobile": u["mobile"],
+                "days_left": days_left, "expiry_date": expiry.isoformat(),
+            })
+
+    # Recent notifications (last 20)
+    recent_notifs = db.get_all_notifications()[:20]
+
+    return {
+        "ok": True,
+        "pending_payments_count": len(pending),
+        "pending_payments": [{"reference": p["reference"], "name": p["name"], "mobile": p["mobile"], "amount": p["amount"], "created_at": p["created_at"]} for p in pending[:10]],
+        "expiring_users": sorted(expiring_soon, key=lambda x: x["days_left"]),
+        "recent_notifications": recent_notifs,
+    }
+
+
+@app.get("/api/admin/notifications")
+def admin_get_notifications(admin: dict = Depends(get_admin_user)):
+    return {"ok": True, "notifications": db.get_all_notifications()}
 
 
 # =====================================================

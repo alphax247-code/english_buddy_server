@@ -26,3 +26,7 @@ services:
         sync: false
       - key: GITHUB_DB_REPO
         sync: false
+      - key: SUPPORT_WHATSAPP
+        sync: false
+      - key: SUPPORT_PHONE
+        sync: false

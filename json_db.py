@@ -42,9 +42,11 @@ LEVELS = [
 EMPTY_DB: Dict[str, Any] = {
     "users": [], "payments": [], "affiliates": [],
     "payouts": [], "practice_sessions": [], "promotions": [],
+    "notifications": [],
     "_counters": {
         "users": 0, "payments": 0, "affiliates": 0,
         "payouts": 0, "practice_sessions": 0, "promotions": 0,
+        "notifications": 0,
     },
 }
 
@@ -516,6 +518,60 @@ class JSONDatabase:
             "avg_pronunciation_score": avg_pronunciation,
             "recent_sessions": sorted(sessions, key=lambda x: x.get("created_at", ""), reverse=True)[:10],
         }
+
+
+    # =====================================================
+    # NOTIFICATION OPERATIONS
+    # =====================================================
+
+    def create_notification(self, title: str, body: str,
+                            notif_type: str = "info",
+                            user_id: Optional[int] = None) -> Dict[str, Any]:
+        """Create a notification for a specific user (user_id) or for all (user_id=None)."""
+        with self.lock:
+            data = self._read_data()
+            data.setdefault("notifications", [])
+            notif = {
+                "id": self._get_next_id("notifications"),
+                "user_id": user_id,  # None = broadcast to all
+                "title": title,
+                "body": body,
+                "type": notif_type,  # "info", "success", "warning", "danger"
+                "read_by": [],       # list of user_ids who have read it
+                "created_at": _now(),
+            }
+            data["notifications"].append(notif)
+            self._write_data(data)
+            return notif
+
+    def get_notifications_for_user(self, user_id: int) -> List[Dict[str, Any]]:
+        """Return notifications addressed to this user (direct or broadcast), newest first."""
+        notifs = [
+            n for n in self._read_data().get("notifications", [])
+            if n.get("user_id") == user_id or n.get("user_id") is None
+        ]
+        return sorted(notifs, key=lambda x: x.get("created_at", ""), reverse=True)[:50]
+
+    def get_unread_count(self, user_id: int) -> int:
+        return sum(
+            1 for n in self._read_data().get("notifications", [])
+            if (n.get("user_id") == user_id or n.get("user_id") is None)
+            and user_id not in (n.get("read_by") or [])
+        )
+
+    def mark_notification_read(self, notif_id: int, user_id: int) -> bool:
+        with self.lock:
+            data = self._read_data()
+            for n in data.get("notifications", []):
+                if n["id"] == notif_id:
+                    if user_id not in (n.get("read_by") or []):
+                        n.setdefault("read_by", []).append(user_id)
+                        self._write_data(data)
+                    return True
+            return False
+
+    def get_all_notifications(self) -> List[Dict[str, Any]]:
+        return sorted(self._read_data().get("notifications", []), key=lambda x: x.get("created_at", ""), reverse=True)[:100]
 
 
 # Global singleton — imported by app.py
