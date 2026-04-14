@@ -73,6 +73,7 @@
       <button class="tab-btn" onclick="switchTab('payments')">💳 Payments</button>
       <button class="tab-btn" onclick="switchTab('payouts')">💰 Payouts</button>
       <button class="tab-btn" onclick="switchTab('promotions')">🎁 Promotions</button>
+      <button class="tab-btn" onclick="switchTab('access')">🔑 Access</button>
     </div>
 
     <!-- OVERVIEW TAB -->
@@ -301,6 +302,53 @@
         <h2>All Promotions</h2>
         <div id="promotions-table"><div class="spinner"></div></div>
       </div>
+    <!-- ACCESS TAB -->
+    <div id="tab-access" style="display:none;">
+
+      <!-- Summary cards -->
+      <div class="metrics-grid" style="margin-bottom:1.5rem;">
+        <div class="metric-card success">
+          <div class="metric-value" id="access-early-count">–</div>
+          <div class="metric-label">Early Users (first 200)</div>
+        </div>
+        <div class="metric-card warning">
+          <div class="metric-value" id="access-bonus-count">–</div>
+          <div class="metric-label">Users with Bonus Days</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" id="access-promo-count">–</div>
+          <div class="metric-label">Active Promotions</div>
+        </div>
+      </div>
+
+      <!-- Active promotions banner -->
+      <div id="access-promo-banner"></div>
+
+      <!-- First 200 users -->
+      <div class="card">
+        <div class="flex-between mb-2">
+          <div>
+            <h2>Early Users — First 200</h2>
+            <p class="text-muted" style="margin-top:.25rem;font-size:.875rem;">These users have <strong>180 days (6 months)</strong> of access from their registration date.</p>
+          </div>
+          <span class="badge badge-success" id="early-users-badge">–</span>
+        </div>
+        <div id="early-users-table"><div class="spinner"></div></div>
+      </div>
+
+      <!-- Users with bonus days -->
+      <div class="card">
+        <div class="flex-between mb-2">
+          <div>
+            <h2>Users with Bonus Access Days</h2>
+            <p class="text-muted" style="margin-top:.25rem;font-size:.875rem;">Manually granted extra days on top of standard access.</p>
+          </div>
+          <span class="badge badge-warning" id="bonus-users-badge">–</span>
+        </div>
+        <div id="bonus-users-table"><div class="spinner"></div></div>
+      </div>
+
+    </div>
     </div>
   </div>
 
@@ -472,7 +520,7 @@
 
     // ===== TAB SWITCHING =====
     function switchTab(tabName) {
-      ['overview', 'affiliates', 'users', 'payments', 'payouts', 'promotions'].forEach(t => {
+      ['overview', 'affiliates', 'users', 'payments', 'payouts', 'promotions', 'access'].forEach(t => {
         document.getElementById(`tab-${t}`).style.display = t === tabName ? 'block' : 'none';
       });
 
@@ -484,6 +532,7 @@
       if (tabName === 'payments') loadPayments();
       if (tabName === 'payouts') loadPayouts();
       if (tabName === 'promotions') loadPromotions();
+      if (tabName === 'access') loadAccess();
       if (tabName === 'overview') {
         loadRecentActivity();
         loadTopAffiliates();
@@ -1620,6 +1669,107 @@
       } catch (e) {
         showAlert('alert-box', e.detail || 'Failed to delete promotion.');
       }
+    }
+
+    // ===== ACCESS =====
+    async function loadAccess() {
+      try {
+        const [usersRes, promosRes] = await Promise.all([
+          API.get('/api/database/users'),
+          API.get('/api/admin/promotions'),
+        ]);
+        const users = usersRes.data || [];
+        const promos = promosRes.promotions || [];
+
+        const now = new Date();
+        const earlyUsers  = users.filter(u => u.id <= 200 && u.is_paid);
+        const bonusUsers  = users.filter(u => u.extra_days > 0);
+        const activePromos = promos.filter(p => {
+          if (!p.is_active) return false;
+          try {
+            return new Date(p.start_date) <= now && now <= new Date(p.end_date);
+          } catch { return false; }
+        });
+
+        // Summary counts
+        document.getElementById('access-early-count').textContent = earlyUsers.length;
+        document.getElementById('access-bonus-count').textContent = bonusUsers.length;
+        document.getElementById('access-promo-count').textContent = activePromos.length;
+        document.getElementById('early-users-badge').textContent = `${earlyUsers.length} / 200`;
+        document.getElementById('bonus-users-badge').textContent = `${bonusUsers.length} users`;
+
+        // Active promotions banner
+        const banner = document.getElementById('access-promo-banner');
+        if (activePromos.length) {
+          banner.innerHTML = activePromos.map(p => `
+            <div class="alert alert-success" style="margin-bottom:1rem;">
+              🎁 <strong>${p.name}</strong> — active until ${new Date(p.end_date).toLocaleDateString()}.
+              All users get access extended through this date.
+            </div>
+          `).join('');
+        } else {
+          banner.innerHTML = '<div class="alert" style="margin-bottom:1rem;background:#f3f4f6;color:#6b7280;">No active promotions at the moment.</div>';
+        }
+
+        // Early users table
+        renderAccessTable('early-users-table', earlyUsers, true);
+
+        // Bonus users table
+        if (bonusUsers.length) {
+          renderAccessTable('bonus-users-table', bonusUsers, false);
+        } else {
+          document.getElementById('bonus-users-table').innerHTML =
+            '<div class="empty-state"><div class="empty-state-icon">🎁</div><div class="empty-state-title">No users with bonus days yet</div><div class="empty-state-subtitle">Use the Users tab to grant extra days to specific users.</div></div>';
+        }
+      } catch (e) {
+        document.getElementById('early-users-table').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">Failed to load access data</div></div>';
+      }
+    }
+
+    function renderAccessTable(containerId, users, showEarlyBadge) {
+      if (!users.length) {
+        document.getElementById(containerId).innerHTML =
+          '<div class="empty-state"><div class="empty-state-icon">👤</div><div class="empty-state-title">No users found</div></div>';
+        return;
+      }
+      const now = new Date();
+      const rows = users.map(u => {
+        const created = new Date(u.created_at || now);
+        const baseDays = u.id <= 200 ? 180 : 90;
+        const totalDays = baseDays + (u.extra_days || 0);
+        const expiry = new Date(created.getTime() + totalDays * 86400000);
+        const daysLeft = Math.max(0, Math.ceil((expiry - now) / 86400000));
+        const expired = daysLeft === 0;
+        return `
+          <tr>
+            <td>${u.id}</td>
+            <td><strong>${u.name}</strong></td>
+            <td>${u.mobile}</td>
+            <td>${formatDate(u.created_at)}</td>
+            <td>
+              ${showEarlyBadge ? '<span class="badge badge-success" style="margin-right:.25rem;">Early</span>' : ''}
+              ${u.extra_days > 0 ? `<span class="badge badge-warning">+${u.extra_days}d bonus</span>` : ''}
+            </td>
+            <td>${totalDays} days</td>
+            <td>${formatDate(expiry.toISOString())}</td>
+            <td>
+              <span class="badge badge-${expired ? 'danger' : daysLeft < 14 ? 'warning' : 'success'}">
+                ${expired ? 'Expired' : daysLeft + ' days left'}
+              </span>
+            </td>
+          </tr>`;
+      }).join('');
+
+      document.getElementById(containerId).innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>Mobile</th><th>Registered</th>
+              <th>Type</th><th>Total Days</th><th>Expires</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
     }
 
     // ===== INIT =====
