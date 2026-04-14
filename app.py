@@ -595,9 +595,12 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
         print("Paysuite status:", response.status_code)
         print("Paysuite response:", response.text)
         provider = response.json()
+    except requests.exceptions.Timeout:
+        print("Paysuite request timed out")
+        raise HTTPException(status_code=502, detail="Não foi possível contactar o servidor de pagamento. Tente novamente.")
     except requests.RequestException as e:
         print("Paysuite request failed:", str(e))
-        raise HTTPException(status_code=502, detail=f"Paysuite request failed: {e}")
+        raise HTTPException(status_code=502, detail="Erro de ligação ao servidor de pagamento. Tente novamente.")
     except ValueError:
         print("Paysuite returned invalid JSON")
         raise HTTPException(status_code=502, detail="Paysuite returned invalid JSON")
