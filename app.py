@@ -174,6 +174,7 @@ def create_token(user: dict) -> str:
     payload = {
         "user_id": user["id"],
         "role": user["role"],
+        "token_version": user.get("token_version", 0),
         "exp": datetime.now(timezone.utc) + timedelta(days=7)
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -187,12 +188,17 @@ def get_current_user(authorization: str = Header(default="")):
     try:
         data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = data.get("user_id")
+        token_version = data.get("token_version", 0)
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user = db.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Reject stale tokens — device switch bumps token_version in DB
+    if token_version != user.get("token_version", 0):
+        raise HTTPException(status_code=401, detail="Session expired. Please login again.")
 
     return user
 
@@ -332,15 +338,14 @@ def login(payload: LoginPayload):
         raise HTTPException(status_code=403, detail="Payment not completed.")
 
     # ── DEVICE LOCK ───────────────────────────────────────────────────────
+    # Bump token_version on every login so any other active session is invalidated.
+    # If a different device_id is presented, update stored device_id (new device takes over).
+    new_version = user.get("token_version", 0) + 1
     if payload.device_id:
-        stored_device = user.get("device_id")
-        if stored_device and stored_device != payload.device_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Esta conta já está registada noutro dispositivo. Contacte o suporte."
-            )
-        if not stored_device:
-            db.update_user(user["id"], device_id=payload.device_id)
+        db.update_user(user["id"], token_version=new_version, device_id=payload.device_id)
+    else:
+        db.update_user(user["id"], token_version=new_version)
+    user = db.get_user_by_id(user["id"])  # reload with updated version
 
     token = create_token(user)
     return {"ok": True, "token": token, "role": user.get("role", "student"),
