@@ -553,16 +553,24 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
     # Strip the leading '+' so PaYSuite gets a plain E.164 string without plus sign
     mobile_digits = mobile.lstrip("+")
 
+    # Determine the best return_url:
+    # - prefer the explicit RETURN_URL env var
+    # - fall back to the deep link so the app re-opens automatically after checkout
+    # - never use localhost (PaYSuite rejects it)
+    effective_return_url = RETURN_URL
+    if not effective_return_url or "127.0.0.1" in effective_return_url or "localhost" in effective_return_url:
+        effective_return_url = f"englishbuddy://payment/registration"
+
     body = {
-        "amount": str(REGISTRATION_AMOUNT),
+        "amount": REGISTRATION_AMOUNT,       # PaYSuite expects a number, not a string
         "method": method,
         "reference": reference,
         "description": f"English Buddy registration for {name}",
-        "return_url": f"{RETURN_URL}?reference={reference}",
+        "return_url": f"{effective_return_url}?reference={reference}",
         # PaYSuite requires the payer phone for USSD-push methods (eMola, M-Pesa).
-        # Including it for all methods is harmless; missing it breaks eMola entirely.
         "phone": mobile_digits,
-        "phone_number": mobile_digits,  # some PaYSuite versions use this key
+        "phone_number": mobile_digits,
+        "msisdn": mobile_digits,             # older PaYSuite versions use this key
     }
 
     if CALLBACK_URL:
@@ -595,7 +603,12 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
         raise HTTPException(status_code=502, detail="Paysuite returned invalid JSON")
 
     if response.status_code not in (200, 201):
-        raise HTTPException(status_code=502, detail=provider.get("message", "Paysuite payment creation failed"))
+        ps_message = provider.get("message") or provider.get("error") or "Paysuite payment creation failed"
+        print(f"Paysuite error HTTP {response.status_code}: {response.text}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"[HTTP {response.status_code}] {ps_message}"
+        )
 
     data = provider.get("data", {})
     checkout_url = data.get("checkout_url")
