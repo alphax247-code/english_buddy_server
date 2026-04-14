@@ -94,6 +94,7 @@ templates.env.cache = None  # Disable LRU cache (broken on Python 3.14)
 class LoginPayload(BaseModel):
     mobile: str
     password: Optional[str] = None
+    device_id: Optional[str] = None
 
 class StartPaymentPayload(BaseModel):
     mobile: str
@@ -329,6 +330,17 @@ def login(payload: LoginPayload):
         raise HTTPException(status_code=403, detail="Your account has been suspended.")
     if not user["is_paid"]:
         raise HTTPException(status_code=403, detail="Payment not completed.")
+
+    # ── DEVICE LOCK ───────────────────────────────────────────────────────
+    if payload.device_id:
+        stored_device = user.get("device_id")
+        if stored_device and stored_device != payload.device_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Esta conta já está registada noutro dispositivo. Contacte o suporte."
+            )
+        if not stored_device:
+            db.update_user(user["id"], device_id=payload.device_id)
 
     token = create_token(user)
     return {"ok": True, "token": token, "role": user.get("role", "student"),
