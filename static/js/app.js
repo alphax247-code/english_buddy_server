@@ -46,7 +46,7 @@ function formatDate(iso) {
 }
 
 function formatAmount(n) {
-  return Number(n).toLocaleString('pt-MZ', { style: 'currency', currency: 'MZN' });
+  return Number(n).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' MZN';
 }
 
 function authGuard() {

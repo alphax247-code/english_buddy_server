@@ -1704,6 +1704,18 @@ def manually_complete_payment(reference: str, admin: dict = Depends(get_admin_us
     }
 
 
+@app.get("/api/database/users")
+def get_all_users_admin(admin: dict = Depends(get_admin_user)):
+    users = db.get_all_users()
+    return {"ok": True, "data": users}
+
+
+@app.get("/api/database/payments")
+def get_all_payments_admin(admin: dict = Depends(get_admin_user)):
+    payments = db.get_all_payments()
+    return {"ok": True, "data": payments}
+
+
 @app.get("/api/admin/payments/pending")
 def get_pending_payments(admin: dict = Depends(get_admin_user)):
     all_payments = db.get_all_payments()
