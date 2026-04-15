@@ -547,8 +547,13 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
             affiliate = None
 
     existing_user = db.get_user_by_mobile(mobile)
-    if existing_user:
+    if existing_user and existing_user.get("is_active") and existing_user.get("is_paid"):
         raise HTTPException(status_code=400, detail="User already exists")
+
+    # Clean up any stale pending/failed payments for this mobile so the new
+    # attempt gets a fresh reference and does not confuse the webhook handler.
+    if not (existing_user and existing_user.get("is_paid")):
+        db.delete_pending_payments_by_mobile(mobile)
 
     reference = f"REG{int(datetime.now(timezone.utc).timestamp())}{mobile[-4:]}{uuid.uuid4().hex[:6].upper()}"
 

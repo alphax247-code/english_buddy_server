@@ -292,6 +292,19 @@ class JSONDatabase:
                 self._write_data(data)
             return deleted
 
+    def delete_pending_payments_by_mobile(self, mobile: str) -> int:
+        with self.lock:
+            data = self._read_data()
+            before = len(data["payments"])
+            data["payments"] = [
+                p for p in data["payments"]
+                if not (p.get("mobile") == mobile and p.get("status") in ("pending", "failed"))
+            ]
+            deleted = before - len(data["payments"])
+            if deleted:
+                self._write_data(data)
+            return deleted
+
     def get_all_payments(self) -> List[Dict[str, Any]]:
         return sorted(self._read_data()["payments"], key=lambda x: x.get("created_at", ""), reverse=True)
 
