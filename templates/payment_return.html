@@ -12,8 +12,8 @@
   <div class="hero">
     <div class="card text-center">
       <div id="icon" style="font-size:3rem; margin-bottom:1rem;">⏳</div>
-      <h1 id="title">Checking Payment…</h1>
-      <p class="text-muted" id="subtitle">Please wait while we verify your payment.</p>
+      <h1 id="title">A verificar pagamento…</h1>
+      <p class="text-muted" id="subtitle">Aguarde enquanto confirmamos o seu pagamento.</p>
       <div class="spinner" id="spinner"></div>
       <div id="alert-box" class="mt-2"></div>
       <div id="actions" style="display:none; margin-top:1rem;">
@@ -57,23 +57,23 @@
 
       if (type === 'success') {
         icon.textContent = '✅';
-        title.textContent = 'Payment Successful!';
-        sub.textContent = 'Your account is now active. Welcome to English Buddy!';
-        showAlert('alert-box', 'Payment confirmed. You can now log in.', 'success');
-        if (data && data.token) {
-          localStorage.setItem('token', data.token);
-          setTimeout(() => window.location.href = '/dashboard', 2500);
-        }
+        title.textContent = 'Pagamento Confirmado!';
+        sub.textContent = 'A sua conta está ativa. A regressar ao English Buddy…';
+        showAlert('alert-box', 'Pagamento confirmado. Bem-vindo ao English Buddy!', 'success');
+        // Redirect back to the Flutter app via deep link
+        setTimeout(() => {
+          window.location.href = `englishbuddy://payment/registration?reference=${reference}`;
+        }, 1500);
       } else if (type === 'failed') {
         icon.textContent = '❌';
-        title.textContent = 'Payment Failed';
-        sub.textContent = 'Your payment could not be processed. Please try again.';
-        showAlert('alert-box', 'Payment was not completed.', 'danger');
+        title.textContent = 'Pagamento Falhado';
+        sub.textContent = 'O pagamento não foi concluído. Tente novamente.';
+        showAlert('alert-box', 'Pagamento não completado.', 'danger');
       } else {
         icon.textContent = '⚠️';
-        title.textContent = 'Something Went Wrong';
-        sub.textContent = 'We could not verify your payment. Please contact support.';
-        showAlert('alert-box', 'Could not verify payment status.', 'warning');
+        title.textContent = 'Algo correu mal';
+        sub.textContent = 'Não foi possível verificar o pagamento. Contacte o suporte.';
+        showAlert('alert-box', 'Não foi possível verificar o estado do pagamento.', 'warning');
       }
     }
 

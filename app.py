@@ -555,13 +555,15 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
     # Strip the leading '+' so PaYSuite gets a plain E.164 string without plus sign
     mobile_digits = mobile.lstrip("+")
 
-    # Determine the best return_url:
-    # - prefer the explicit RETURN_URL env var
-    # - fall back to the deep link so the app re-opens automatically after checkout
-    # - never use localhost (PaYSuite rejects it)
-    effective_return_url = RETURN_URL
-    if not effective_return_url or "127.0.0.1" in effective_return_url or "localhost" in effective_return_url:
-        effective_return_url = f"englishbuddy://payment/registration"
+    # Build a valid HTTPS return_url — PaYSuite rejects non-HTTP URLs.
+    # Use explicit RETURN_URL env var if it starts with https, otherwise
+    # fall back to this server's /payment-return endpoint.
+    if RETURN_URL and RETURN_URL.startswith("https://"):
+        effective_return_url = RETURN_URL
+    elif RENDER_EXTERNAL_URL:
+        effective_return_url = f"{RENDER_EXTERNAL_URL}/payment-return"
+    else:
+        effective_return_url = "https://english-buddy-server.onrender.com/payment-return"
 
     body = {
         "amount": REGISTRATION_AMOUNT,
