@@ -34,7 +34,7 @@ ALGORITHM = "HS256"
 
 REGISTRATION_AMOUNT = 10
 
-PAYSUITE_API_BASE = "https://paysuite.tech/api/v1"
+PAYSUITE_API_BASE = os.getenv("PAYSUITE_API_BASE", "https://paysuite.tech/api/v1")
 PAYSUITE_API_TOKEN = os.getenv("PAYSUITE_API_TOKEN", "")
 PAYSUITE_WEBHOOK_SECRET = os.getenv("PAYSUITE_WEBHOOK_SECRET", "")
 RETURN_URL = os.getenv("RETURN_URL", "http://127.0.0.1:8000/payment-return")
