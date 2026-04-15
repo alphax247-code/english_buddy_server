@@ -523,7 +523,7 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
     if not mobile:
         raise HTTPException(status_code=400, detail="Invalid mobile number")
 
-    if method not in {"mpesa", "e-mola", "credit_card"}:
+    if method not in {"mpesa", "emola", "credit_card"}:
         raise HTTPException(status_code=400, detail="Invalid payment method")
 
     # Resolve affiliate code: prefer explicit payload field, then JWT (affiliate scanning the QR)
@@ -564,15 +564,11 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
         effective_return_url = f"englishbuddy://payment/registration"
 
     body = {
-        "amount": REGISTRATION_AMOUNT,       # PaYSuite expects a number, not a string
+        "amount": REGISTRATION_AMOUNT,
         "method": method,
         "reference": reference,
         "description": f"English Buddy registration for {name}",
         "return_url": f"{effective_return_url}?reference={reference}",
-        # PaYSuite requires the payer phone for USSD-push methods (eMola, M-Pesa).
-        "phone": mobile_digits,
-        "phone_number": mobile_digits,
-        "msisdn": mobile_digits,             # older PaYSuite versions use this key
     }
 
     if CALLBACK_URL:
