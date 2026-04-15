@@ -112,8 +112,10 @@ class LoginPayload(BaseModel):
 def _normalize_method(method: str) -> str:
     """Normalise payment method aliases to the canonical form PaYSuite expects."""
     m = method.strip().lower()
-    if m in ("emola", "e-mola", "emola_mz"):
-        return "e-mola"
+    if m in ("emola", "e-mola", "emola_mz", "e_mola"):
+        return "emola"
+    if m in ("mpesa", "m-pesa", "m_pesa"):
+        return "mpesa"
     return m
 
 
