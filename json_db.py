@@ -174,7 +174,8 @@ class JSONDatabase:
     # =====================================================
 
     def create_user(self, name: str, mobile: str, is_paid: bool = False,
-                    role: str = "student", affiliate_code: Optional[str] = None) -> Dict[str, Any]:
+                    role: str = "student", affiliate_code: Optional[str] = None,
+                    password: Optional[str] = None) -> Dict[str, Any]:
         with self.lock:
             data = self._read_data()
             if any(u["mobile"] == mobile for u in data["users"]):
@@ -185,11 +186,25 @@ class JSONDatabase:
                 "is_paid": is_paid, "is_active": True, "is_banned": False,
                 "affiliate_code": affiliate_code, "xp": 0, "total_sessions": 0,
                 "token_version": 0, "device_id": None,
+                "password": password,
                 "created_at": _now(),
             }
             data["users"].append(user)
             self._write_data(data)
             return user
+
+    def migrate_default_password(self, default_hash: str) -> int:
+        """Set default password for all users that don't have one. Returns count updated."""
+        with self.lock:
+            data = self._read_data()
+            count = 0
+            for user in data["users"]:
+                if not user.get("password") and user.get("role") not in ("admin",):
+                    user["password"] = default_hash
+                    count += 1
+            if count:
+                self._write_data(data)
+            return count
 
     def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
         data = self._read_data()

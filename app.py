@@ -79,6 +79,11 @@ def _import_json_snapshot_if_needed():
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _import_json_snapshot_if_needed()
+    # Migrate existing users: set default password for any without one
+    default_hash = hash_password(DEFAULT_PASSWORD)
+    count = db.migrate_default_password(default_hash)
+    if count:
+        print(f"[startup] Migrated {count} user(s) to default password.")
     asyncio.create_task(_poll_pending_payments())
     asyncio.create_task(_keep_alive())
     yield
@@ -104,10 +109,16 @@ templates.env.cache = None  # Disable LRU cache (broken on Python 3.14)
 # REQUEST MODELS
 # =====================================================
 
+DEFAULT_PASSWORD = "englishbuddy123"
+
 class LoginPayload(BaseModel):
     mobile: str
     password: Optional[str] = None
     device_id: Optional[str] = None
+
+class ChangePasswordPayload(BaseModel):
+    current_password: str
+    new_password: str
 
 def _normalize_method(method: str) -> str:
     """Normalise payment method aliases to the canonical form PaYSuite expects."""
@@ -377,11 +388,23 @@ def login(payload: LoginPayload):
     # ── REGULAR USER ──────────────────────────────────────────────────────
     user = db.get_user_by_mobile(mobile)
     if not user:
-        raise HTTPException(status_code=404, detail="Number not registered. Please register first.")
+        raise HTTPException(status_code=404, detail="Número não registado. Por favor registe-se.")
     if user.get("is_banned"):
-        raise HTTPException(status_code=403, detail="Your account has been suspended.")
+        raise HTTPException(status_code=403, detail="A sua conta foi suspensa.")
     if not user["is_paid"]:
-        raise HTTPException(status_code=403, detail="Payment not completed.")
+        raise HTTPException(status_code=403, detail="Pagamento não concluído.")
+
+    # ── PASSWORD CHECK ────────────────────────────────────────────────────
+    stored_hash = user.get("password")
+    if not stored_hash:
+        # No password yet — assign default and allow login
+        stored_hash = hash_password(DEFAULT_PASSWORD)
+        db.update_user(user["id"], password=stored_hash)
+        user = db.get_user_by_id(user["id"])
+    if not payload.password:
+        raise HTTPException(status_code=401, detail="Password obrigatória.")
+    if not verify_password(payload.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Password incorrecta.")
 
     # ── DEVICE LOCK ───────────────────────────────────────────────────────
     # Bump token_version on every login so any other active session is invalidated.
@@ -394,8 +417,10 @@ def login(payload: LoginPayload):
     user = db.get_user_by_id(user["id"])  # reload with updated version
 
     token = create_token(user)
+    requires_pw_change = verify_password(DEFAULT_PASSWORD, user.get("password", ""))
     return {"ok": True, "token": token, "role": user.get("role", "student"),
             "redirect": "/dashboard",
+            "requires_password_change": requires_pw_change,
             "user": {"id": user["id"], "name": user["name"], "mobile": user["mobile"]}}
 
 
@@ -411,6 +436,20 @@ def get_me(user: dict = Depends(get_current_user)):
             "is_paid": user["is_paid"]
         }
     }
+
+
+@app.post("/api/me/change-password")
+def change_password(payload: ChangePasswordPayload, user: dict = Depends(get_current_user)):
+    stored_hash = user.get("password")
+    if not stored_hash:
+        raise HTTPException(status_code=400, detail="Conta sem password definida.")
+    if not verify_password(payload.current_password, stored_hash):
+        raise HTTPException(status_code=400, detail="Password actual incorrecta.")
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Nova password deve ter pelo menos 6 caracteres.")
+    new_hash = hash_password(payload.new_password)
+    db.update_user(user["id"], password=new_hash)
+    return {"ok": True, "message": "Password alterada com sucesso."}
 
 
 @app.post("/api/admin/login")
