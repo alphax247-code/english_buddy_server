@@ -32,7 +32,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "change-this-admin-password")
 ALGORITHM = "HS256"
 
-REGISTRATION_AMOUNT = 10
+REGISTRATION_AMOUNT = 500
 
 PAYSUITE_API_BASE = os.getenv("PAYSUITE_API_BASE", "https://paysuite.tech/api/v1")
 PAYSUITE_API_TOKEN = os.getenv("PAYSUITE_API_TOKEN", "")
