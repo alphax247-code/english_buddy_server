@@ -249,7 +249,8 @@ class JSONDatabase:
                        provider_payment_id: Optional[str] = None,
                        checkout_url: Optional[str] = None,
                        affiliate_code: Optional[str] = None,
-                       commission_amount: int = 0) -> Dict[str, Any]:
+                       commission_amount: int = 0,
+                       password_hash: Optional[str] = None) -> Dict[str, Any]:
         with self.lock:
             data = self._read_data()
             if any(p["reference"] == reference for p in data["payments"]):
@@ -264,6 +265,7 @@ class JSONDatabase:
                 "affiliate_code": affiliate_code,
                 "commission_amount": commission_amount,
                 "commission_paid": False,
+                "password_hash": password_hash,
                 "created_at": _now(),
             }
             data["payments"].append(payment)

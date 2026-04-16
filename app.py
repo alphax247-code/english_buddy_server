@@ -135,6 +135,7 @@ class StartPaymentPayload(BaseModel):
     name: str
     method: str = "mpesa"
     affiliate_code: Optional[str] = None
+    password: Optional[str] = None
 
 class CheckPaymentPayload(BaseModel):
     reference: str
@@ -669,6 +670,10 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
     if affiliate:
         commission_amount = int(REGISTRATION_AMOUNT * affiliate["commission_rate"] / 100)
 
+    # Hash the password if provided; fall back to default
+    raw_password = payload.password.strip() if payload.password and payload.password.strip() else None
+    password_hash = hash_password(raw_password) if raw_password else hash_password(DEFAULT_PASSWORD)
+
     payment = db.create_payment(
         name=name,
         mobile=mobile,
@@ -679,7 +684,8 @@ def start_registration_payment(payload: StartPaymentPayload, authorization: str 
         provider_payment_id=provider_payment_id,
         checkout_url=checkout_url,
         affiliate_code=affiliate_code,
-        commission_amount=commission_amount
+        commission_amount=commission_amount,
+        password_hash=password_hash
     )
 
     return {
@@ -792,23 +798,27 @@ def check_payment_status(payload: CheckPaymentPayload):
 
     if internal_status == "success":
         existing_user = db.get_user_by_mobile(payment["mobile"])
+        pw_hash = payment.get("password_hash") or hash_password(DEFAULT_PASSWORD)
 
         if not existing_user:
             user = db.create_user(
                 name=payment["name"],
                 mobile=payment["mobile"],
                 is_paid=True,
-                affiliate_code=payment.get("affiliate_code")
+                affiliate_code=payment.get("affiliate_code"),
+                password=pw_hash
             )
             print("User created after payment confirmation:", payment["mobile"])
             update_affiliate_stats(payment)
         else:
-            db.update_user(
-                existing_user["id"],
+            update_kwargs = dict(
                 is_paid=True,
                 is_active=True,
                 affiliate_code=existing_user.get("affiliate_code") or payment.get("affiliate_code")
             )
+            if not existing_user.get("password"):
+                update_kwargs["password"] = pw_hash
+            db.update_user(existing_user["id"], **update_kwargs)
             user = db.get_user_by_id(existing_user["id"])
             print("Existing user marked as paid:", payment["mobile"])
             if not payment.get("commission_paid"):
@@ -939,22 +949,26 @@ def check_payment_by_mobile(payload: CheckPaymentByMobilePayload):
     payment = db.get_payment_by_reference(payment["reference"])
 
     if internal_status == "success":
+        pw_hash = payment.get("password_hash") or hash_password(DEFAULT_PASSWORD)
         if not user:
             user = db.create_user(
                 name=payment["name"],
                 mobile=payment["mobile"],
                 is_paid=True,
-                affiliate_code=payment.get("affiliate_code")
+                affiliate_code=payment.get("affiliate_code"),
+                password=pw_hash
             )
             print("User created after payment confirmation:", payment["mobile"])
             update_affiliate_stats(payment)
         else:
-            db.update_user(
-                user["id"],
+            update_kwargs = dict(
                 is_paid=True,
                 is_active=True,
                 affiliate_code=user.get("affiliate_code") or payment.get("affiliate_code")
             )
+            if not user.get("password"):
+                update_kwargs["password"] = pw_hash
+            db.update_user(user["id"], **update_kwargs)
             user = db.get_user_by_id(user["id"])
             print("Existing user marked as paid:", payment["mobile"])
             if not payment.get("commission_paid"):
@@ -1703,23 +1717,27 @@ def manually_complete_payment(reference: str, admin: dict = Depends(get_admin_us
     payment = db.get_payment_by_reference(reference)
 
     existing_user = db.get_user_by_mobile(payment["mobile"])
+    pw_hash = payment.get("password_hash") or hash_password(DEFAULT_PASSWORD)
 
     if not existing_user:
         user_created = db.create_user(
             name=payment["name"],
             mobile=payment["mobile"],
             is_paid=True,
-            affiliate_code=payment.get("affiliate_code")
+            affiliate_code=payment.get("affiliate_code"),
+            password=pw_hash
         )
         print(f"User created after manual payment completion: {payment['mobile']}")
         update_affiliate_stats(payment)
     else:
-        db.update_user(
-            existing_user["id"],
+        update_kwargs = dict(
             is_paid=True,
             is_active=True,
             affiliate_code=existing_user.get("affiliate_code") or payment.get("affiliate_code")
         )
+        if not existing_user.get("password"):
+            update_kwargs["password"] = pw_hash
+        db.update_user(existing_user["id"], **update_kwargs)
         user_created = db.get_user_by_id(existing_user["id"])
         print(f"Existing user marked as paid: {payment['mobile']}")
         if not payment.get("commission_paid"):
