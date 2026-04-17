@@ -482,13 +482,16 @@
         </div>
         <div class="form-group">
           <label>Mobile Number</label>
-          <input type="tel" id="new-aff-mobile" placeholder="+258 84 000 0000" required />
-          <small class="text-muted">Required for affiliate payouts</small>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="padding:8px 10px;background:var(--bg-tertiary,#1e2a3a);border:1px solid var(--border,#2d3748);border-radius:6px;color:var(--text-secondary,#a0aec0);white-space:nowrap">+258</span>
+            <input type="tel" id="new-aff-mobile" placeholder="84 000 0000" required style="flex:1" maxlength="9" />
+          </div>
+          <small class="text-muted">Digite apenas os 9 dígitos sem código de país</small>
         </div>
         <div class="form-group">
           <label>Commission Rate (%)</label>
           <input type="number" id="new-aff-rate" value="20" min="0" max="100" />
-          <small class="text-muted">Percentage of registration fee (e.g., 20% of 10 MZN = 2 MZN)</small>
+          <small class="text-muted">Percentage of registration fee (e.g., 20% of 500 MZN = 100 MZN)</small>
         </div>
       </div>
       <div class="modal-footer">
@@ -746,7 +749,7 @@
     async function createAffiliate() {
       const code = document.getElementById('new-aff-code').value.trim();
       const name = document.getElementById('new-aff-name').value.trim();
-      const mobile = document.getElementById('new-aff-mobile').value.trim();
+      const mobileRaw = document.getElementById('new-aff-mobile').value.replace(/\D/g, '');
       const rate = parseFloat(document.getElementById('new-aff-rate').value);
 
       if (!code || !name) {
@@ -754,17 +757,19 @@
         return;
       }
 
-      if (!mobile) {
-        showAlert('alert-box', 'Mobile number is required for affiliate payouts.');
+      if (!mobileRaw || mobileRaw.length !== 9) {
+        showAlert('alert-box', 'Digite 9 dígitos para o número de telemóvel.');
         return;
       }
+
+      const mobile = '+258' + mobileRaw;
 
       setLoading('create-aff-btn', true);
       try {
         await API.post('/api/admin/affiliates', {
           code,
           name,
-          mobile: mobile || null,
+          mobile,
           commission_rate: rate
         });
         showAlert('alert-box', 'Affiliate created successfully!', 'success');
