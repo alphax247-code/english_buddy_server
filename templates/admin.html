@@ -472,13 +472,13 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>Affiliate Code</label>
-          <input type="text" id="new-aff-code" placeholder="e.g. BUDDY2024" />
-          <small class="text-muted">Unique code for tracking referrals</small>
+          <label>Full Name</label>
+          <input type="text" id="new-aff-name" placeholder="John Doe" oninput="autoGenAffCode(this.value)" />
         </div>
         <div class="form-group">
-          <label>Full Name</label>
-          <input type="text" id="new-aff-name" placeholder="John Doe" />
+          <label>Affiliate Code</label>
+          <input type="text" id="new-aff-code" placeholder="Auto-generated from name" />
+          <small class="text-muted">Auto-generated — edit if needed</small>
         </div>
         <div class="form-group">
           <label>Mobile Number</label>
@@ -744,6 +744,20 @@
         (a.name || '').toLowerCase().includes(search)
       );
       renderAffiliates(filtered);
+    }
+
+    function autoGenAffCode(name) {
+      const codeField = document.getElementById('new-aff-code');
+      if (!name.trim()) { codeField.value = ''; return; }
+      const parts = name.trim().toUpperCase().replace(/[^A-Z\s]/g, '').split(/\s+/).filter(Boolean);
+      let base = '';
+      if (parts.length >= 2) {
+        base = parts[0].substring(0, 3) + parts[parts.length - 1].substring(0, 3);
+      } else {
+        base = parts[0].substring(0, 6);
+      }
+      const suffix = Math.floor(100 + Math.random() * 900);
+      codeField.value = base + suffix;
     }
 
     async function createAffiliate() {
