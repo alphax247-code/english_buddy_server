@@ -2,6 +2,8 @@ import os
 import re
 import hmac
 import uuid
+import string
+import random
 import hashlib
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -45,6 +47,14 @@ RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")
 # Support contact — set these in Render env vars (no app rebuild needed to change)
 SUPPORT_WHATSAPP = os.getenv("SUPPORT_WHATSAPP", "")   # e.g. 258841234567
 SUPPORT_PHONE    = os.getenv("SUPPORT_PHONE", "")       # e.g. +258841234567
+
+# WhatsApp Business API for OTP
+WA_TOKEN           = os.getenv("WHATSAPP_TOKEN", "")
+WA_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+WA_TEMPLATE_NAME   = os.getenv("WHATSAPP_TEMPLATE_NAME", "english_buddy_otp")
+
+# In-memory OTP store: mobile -> {code, expires_at}
+_otp_store: dict = {}
 
 async def _keep_alive():
     """Ping self every 14 minutes to prevent Render free tier spin-down."""
@@ -122,6 +132,11 @@ class ChangePasswordPayload(BaseModel):
 
 class ResetPasswordPayload(BaseModel):
     mobile: str
+
+class VerifyOtpPayload(BaseModel):
+    mobile: str
+    otp: str
+    new_password: str
 
 def _normalize_method(method: str) -> str:
     """Normalise payment method aliases to the canonical form PaYSuite expects."""
@@ -456,9 +471,49 @@ def change_password(payload: ChangePasswordPayload, user: dict = Depends(get_cur
     return {"ok": True, "message": "Password alterada com sucesso."}
 
 
+def _generate_otp(length: int = 6) -> str:
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(random.choices(chars, k=length))
+
+def _send_whatsapp_otp(to_mobile: str, otp: str) -> bool:
+    """Send OTP via WhatsApp Business API. Returns True on success."""
+    if not WA_TOKEN or not WA_PHONE_NUMBER_ID:
+        print("[OTP] WhatsApp not configured — OTP:", otp)
+        return False
+    # Strip leading + for WhatsApp API
+    wa_number = to_mobile.lstrip("+")
+    url = f"https://graph.facebook.com/v20.0/{WA_PHONE_NUMBER_ID}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": wa_number,
+        "type": "template",
+        "template": {
+            "name": WA_TEMPLATE_NAME,
+            "language": {"code": "pt_PT"},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": otp}]
+                }
+            ]
+        }
+    }
+    headers = {
+        "Authorization": f"Bearer {WA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"[OTP] WhatsApp response {r.status_code}: {r.text}")
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[OTP] WhatsApp send failed: {e}")
+        return False
+
+
 @app.post("/api/reset-password")
 def reset_password(payload: ResetPasswordPayload):
-    """Reset a user's password to the default. Returns the temp password so the user can log in."""
+    """Generate OTP, store it, and send via WhatsApp."""
     mobile = process_mobile_number(payload.mobile)
     if not mobile:
         raise HTTPException(status_code=400, detail="Número de telemóvel inválido.")
@@ -467,10 +522,47 @@ def reset_password(payload: ResetPasswordPayload):
         raise HTTPException(status_code=404, detail="Número não registado.")
     if not user.get("is_paid"):
         raise HTTPException(status_code=403, detail="Conta sem pagamento concluído.")
-    new_hash = hash_password(DEFAULT_PASSWORD)
-    db.update_user(user["id"], password=new_hash)
-    return {"ok": True, "temp_password": DEFAULT_PASSWORD,
-            "message": "Password redefinida. Use a password temporária para entrar e altere-a de seguida."}
+
+    otp = _generate_otp()
+    _otp_store[mobile] = {
+        "code": otp,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
+    }
+
+    sent = _send_whatsapp_otp(mobile, otp)
+    if not sent:
+        # WhatsApp not configured — return code directly (dev/fallback mode)
+        return {"ok": True, "sent_via_whatsapp": False, "otp": otp,
+                "message": "Código gerado. Configure WhatsApp para envio automático."}
+
+    return {"ok": True, "sent_via_whatsapp": True,
+            "message": "Código enviado para o seu WhatsApp. Válido por 10 minutos."}
+
+
+@app.post("/api/verify-reset-otp")
+def verify_reset_otp(payload: VerifyOtpPayload):
+    """Verify OTP and set new password."""
+    mobile = process_mobile_number(payload.mobile)
+    if not mobile:
+        raise HTTPException(status_code=400, detail="Número inválido.")
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Nova password deve ter pelo menos 6 caracteres.")
+
+    entry = _otp_store.get(mobile)
+    if not entry:
+        raise HTTPException(status_code=400, detail="Nenhum código encontrado. Solicite um novo.")
+    if datetime.now(timezone.utc) > entry["expires_at"]:
+        _otp_store.pop(mobile, None)
+        raise HTTPException(status_code=400, detail="Código expirado. Solicite um novo.")
+    if payload.otp.strip().upper() != entry["code"]:
+        raise HTTPException(status_code=400, detail="Código incorrecto.")
+
+    _otp_store.pop(mobile, None)
+    user = db.get_user_by_mobile(mobile)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilizador não encontrado.")
+    db.update_user(user["id"], password=hash_password(payload.new_password))
+    return {"ok": True, "message": "Password redefinida com sucesso."}
 
 
 @app.post("/api/admin/users/{user_id}/reset-password")
