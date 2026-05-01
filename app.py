@@ -120,6 +120,9 @@ class ChangePasswordPayload(BaseModel):
     current_password: str
     new_password: str
 
+class ResetPasswordPayload(BaseModel):
+    mobile: str
+
 def _normalize_method(method: str) -> str:
     """Normalise payment method aliases to the canonical form PaYSuite expects."""
     m = method.strip().lower()
@@ -451,6 +454,34 @@ def change_password(payload: ChangePasswordPayload, user: dict = Depends(get_cur
     new_hash = hash_password(payload.new_password)
     db.update_user(user["id"], password=new_hash)
     return {"ok": True, "message": "Password alterada com sucesso."}
+
+
+@app.post("/api/reset-password")
+def reset_password(payload: ResetPasswordPayload):
+    """Reset a user's password to the default. Returns the temp password so the user can log in."""
+    mobile = process_mobile_number(payload.mobile)
+    if not mobile:
+        raise HTTPException(status_code=400, detail="Número de telemóvel inválido.")
+    user = db.get_user_by_mobile(mobile)
+    if not user:
+        raise HTTPException(status_code=404, detail="Número não registado.")
+    if not user.get("is_paid"):
+        raise HTTPException(status_code=403, detail="Conta sem pagamento concluído.")
+    new_hash = hash_password(DEFAULT_PASSWORD)
+    db.update_user(user["id"], password=new_hash)
+    return {"ok": True, "temp_password": DEFAULT_PASSWORD,
+            "message": "Password redefinida. Use a password temporária para entrar e altere-a de seguida."}
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def admin_reset_user_password(user_id: int, admin: dict = Depends(get_admin_user)):
+    """Admin: reset a user's password to the default."""
+    user = db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilizador não encontrado.")
+    new_hash = hash_password(DEFAULT_PASSWORD)
+    db.update_user(user_id, password=new_hash)
+    return {"ok": True, "message": f"Password de {user['name']} redefinida para o padrão."}
 
 
 @app.post("/api/admin/login")
